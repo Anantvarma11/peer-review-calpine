@@ -1,0 +1,20 @@
+[data-theme='light'] {
+    --bg-root: rgba(186, 201, 212, 0.3);
+    --bg-surface-1: rgba(255, 255, 255, 0.90);
+    --bg-surface-2: #F1F5F9;
+    --bg-surface-3: #E2E8F0;
+    --bg-surface-4: #CBD5E1;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-2: 0 4px 6px rgba(0, 0, 0, 0.05);
+    --shadow-3: 0 10px 15px rgba(0, 0, 0, 0.05);
+    --primary-500: #0F172A;
+    --brand-primary: var(--primary-500);
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-tertiary: #94A3B8;
+    --border-subtle: #E2E8F0;
+    --border-default: #CBD5E1;
+    --border-strong: #94A3B8;
+    --glass-bg: rgba(255, 255, 255, 0.70);
+    --glass-border: rgba(255, 255, 255, 1);
+}

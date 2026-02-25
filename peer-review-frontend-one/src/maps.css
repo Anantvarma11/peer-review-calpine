@@ -1,0 +1,4 @@
+/* fix for map z-index */
+.leaflet-container {
+    z-index: 10;
+}

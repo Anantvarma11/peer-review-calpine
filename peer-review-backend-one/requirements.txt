@@ -1,0 +1,23 @@
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+sqlalchemy>=1.4.40,<2.0.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+snowflake-connector-python>=3.7.0
+snowflake-sqlalchemy>=1.5.1
+# Databricks
+databricks-sql-connector>=2.9.0
+databricks-sqlalchemy>=1.0.0
+python-dotenv>=1.0.1
+python-multipart>=0.0.9
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+# Heavy libraries not used in main runtime (only for scripts)
+# pandas>=1.5.0,<2.2.0
+# numpy>=1.26.0
+# scikit-learn>=1.4.0
+# AI / ML
+httpx>=0.27.0
+openai>=1.10.0
+# google-generative-ai>=0.3.2  <-- Removed, using Databricks Serving
+azure-cognitiveservices-speech>=1.34.0

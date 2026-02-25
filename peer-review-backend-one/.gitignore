@@ -1,0 +1,30 @@
+# Python Caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+
+# Project specific caches or data files
+pdf_content.txt
+schema_info.txt
+db_inspection.txt
+cols.txt
+response.json
+response_mock.json
+response_real.json

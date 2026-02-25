@@ -1,0 +1,205 @@
+| Code | Station Name                          | Location                  |
+|------|---------------------------------------|---------------------------|
+| KLUK | Cincinnati Municipal Lunken Airport   | Cincinnati, Ohio          |
+| KFAT | Fresno Yosemite International Airport | Fresno, California        |
+| KGTF | Great Falls International Airport     | Great Falls, Montana      |
+| KSBN | South Bend International Airport      | South Bend, Indiana       |
+| KPIA | General Wayne A. Downing Peoria International Airport | Peoria, Illinois          |
+| KAGS | Augusta Regional Airport              | Augusta, Georgia          |
+| KCYS | Cheyenne Regional Airport             | Cheyenne, Wyoming         |
+| KSAT | San Antonio International Airport     | San Antonio, Texas        |
+| KAUS | Austin–Bergstrom International Airport| Austin, Texas             |
+| KPIH | Pocatello Regional Airport            | Pocatello, Idaho          |
+| KPDT | Eastern Oregon Regional Airport       | Pendleton, Oregon         |
+| KEWR | Newark Liberty International Airport  | Newark, New Jersey        |
+| KHON | Huron Regional Airport                | Huron, South Dakota       |
+| KCOS | Colorado Springs Airport              | Colorado Springs, Colorado|
+| KRAP | Rapid City Regional Airport           | Rapid City, South Dakota  |
+| KTUL | Tulsa International Airport           | Tulsa, Oklahoma           |
+| KSPI | Abraham Lincoln Capital Airport       | Springfield, Illinois     |
+| KPOU | Hudson Valley Regional Airport        | Poughkeepsie, New York    |
+| KIAH | George Bush Intercontinental Airport  | Houston, Texas            |
+| KJAX | Jacksonville International Airport    | Jacksonville, Florida     |
+| KCAE | Columbia Metropolitan Airport         | Columbia, South Carolina  |
+| KLAX | Los Angeles International Airport     | Los Angeles, California   |
+| KLGB | Long Beach Airport                    | Long Beach, California    |
+| KBUF | Buffalo Niagara International Airport | Buffalo, New York         |
+| KSPS | Sheppard AFB/Wichita Falls Municipal Airport | Wichita Falls, Texas      |
+| KLBB | Lubbock Preston Smith International Airport | Lubbock, Texas            |
+| KRAL | Riverside Municipal Airport           | Riverside, California     |
+| KTYS | McGhee Tyson Airport                  | Knoxville, Tennessee      |
+| KRNO | Reno–Tahoe International Airport      | Reno, Nevada              |
+| KHOU | William P. Hobby Airport              | Houston, Texas            |
+| CYVR | Vancouver International Airport       | Vancouver, British Columbia |
+| KDCA | Ronald Reagan Washington National Airport | Arlington, Virginia       |
+| KSDF | Louisville Muhammad Ali International Airport | Louisville, Kentucky      |
+| KLNK | Lincoln Airport                       | Lincoln, Nebraska         |
+| KAHN | Athens Ben Epps Airport               | Athens, Georgia           |
+| KBUR | Hollywood Burbank Airport             | Burbank, California       |
+| KBTV | Burlington International Airport      | Burlington, Vermont       |
+| KORD | O'Hare International Airport          | Chicago, Illinois         |
+| KPBI | Palm Beach International Airport      | West Palm Beach, Florida  |
+| KSFO | San Francisco International Airport   | San Francisco, California |
+| KONT | Ontario International Airport         | Ontario, California       |
+| CYYC | Calgary International Airport         | Calgary, Alberta          |
+| KLND | Hunt Field                            | Lander, Wyoming           |
+| KPVD | Rhode Island T.F. Green International Airport | Providence, Rhode Island  |
+| KAMA | Rick Husband Amarillo International Airport | Amarillo, Texas           |
+| KUIL | Quillayute Airport                    | Quillayute, Washington    |
+| KPDX | Portland International Airport        | Portland, Oregon          |
+| KDDC | Dodge City Regional Airport           | Dodge City, Kansas        |
+| KBOS | Logan International Airport           | Boston, Massachusetts     |
+| KORF | Norfolk International Airport         | Norfolk, Virginia         |
+| KTPA | Tampa International Airport           | Tampa, Florida            |
+| KPWM | Portland International Jetport        | Portland, Maine           |
+| KEUG | Mahlon Sweet Field                    | Eugene, Oregon            |
+| KGAG | Gage Airport                          | Gage, Oklahoma            |
+| KCLT | Charlotte Douglas International Airport | Charlotte, North Carolina |
+| KSGF | Springfield–Branson National Airport  | Springfield, Missouri     |
+| KMAF | Midland International Air & Space Port| Midland, Texas            |
+| KSYR | Syracuse Hancock International Airport| Syracuse, New York        |
+| KMCN | Middle Georgia Regional Airport       | Macon, Georgia            |
+| KPIT | Pittsburgh International Airport      | Pittsburgh, Pennsylvania  |
+| KMSN | Dane County Regional Airport          | Madison, Wisconsin        |
+| KTOP | Philip Billard Municipal Airport      | Topeka, Kansas            |
+| KGSP | Greenville–Spartanburg International Airport | Greer, South Carolina     |
+| KHSE | Billy Mitchell Airport                | Hatteras, North Carolina  |
+| KRBL | Red Bluff Municipal Airport           | Red Bluff, California     |
+| KFSD | Joe Foss Field                        | Sioux Falls, South Dakota |
+| KMSP | Minneapolis–Saint Paul International Airport | Minneapolis, Minnesota    |
+| KFWA | Fort Wayne International Airport      | Fort Wayne, Indiana       |
+| KFLG | Flagstaff Pulliam Airport             | Flagstaff, Arizona        |
+| KABE | Lehigh Valley International Airport   | Allentown, Pennsylvania   |
+| KCAK | Akron–Canton Airport                  | Akron, Ohio               |
+| KROC | Greater Rochester International Airport | Rochester, New York       |
+| KPHX | Phoenix Sky Harbor International Airport | Phoenix, Arizona          |
+| KELY | Ely Airport Yelland Field             | Ely, Nevada               |
+| KLCH | Lake Charles Regional Airport         | Lake Charles, Louisiana   |
+| KTLH | Tallahassee International Airport     | Tallahassee, Florida      |
+| KHSV | Huntsville International Airport      | Huntsville, Alabama       |
+| KBNO | Burns Municipal Airport               | Burns, Oregon             |
+| KSAC | Sacramento Executive Airport          | Sacramento, California    |
+| KGRB | Austin Straubel International Airport | Green Bay, Wisconsin      |
+| KICT | Wichita Dwight D. Eisenhower National Airport | Wichita, Kansas           |
+| KLAN | Capital Region International Airport  | Lansing, Michigan         |
+| KBPT | Jack Brooks Regional Airport          | Beaumont, Texas           |
+| KCPR | Casper/Natrona County International Airport | Casper, Wyoming           |
+| KRIV | March Air Reserve Base                | Riverside, California     |
+| KMGM | Montgomery Regional Airport           | Montgomery, Alabama       |
+| KCRW | Yeager Airport                        | Charleston, West Virginia |
+| KRFD | Chicago Rockford International Airport| Rockford, Illinois        |
+| KBDR | Igor I. Sikorsky Memorial Airport     | Bridgeport, Connecticut   |
+| KSHV | Shreveport Regional Airport           | Shreveport, Louisiana     |
+| KMCI | Kansas City International Airport     | Kansas City, Missouri     |
+| KBNA | Nashville International Airport       | Nashville, Tennessee      |
+| KRDU | Raleigh–Durham International Airport  | Raleigh, North Carolina   |
+| KSTL | St. Louis Lambert International Airport | St. Louis, Missouri       |
+| KDFW | Dallas/Fort Worth International Airport | Dallas, Texas             |
+| KTUS | Tucson International Airport          | Tucson, Arizona           |
+| KNYC | Central Park Weather Station          | New York, New York        |
+| KBOI | Boise Airport                         | Boise, Idaho              |
+| KSCK | Stockton Metropolitan Airport         | Stockton, California      |
+| KEVV | Evansville Regional Airport           | Evansville, Indiana       |
+| KMEI | Meridian Regional Airport             | Meridian, Mississippi     |
+| KVCT | Victoria Regional Airport             | Victoria, Texas           |
+| KMSO | Missoula International Airport        | Missoula, Montana         |
+| KDTW | Detroit Metropolitan Wayne County Airport | Detroit, Michigan         |
+| KCMH | John Glenn Columbus International Airport | Columbus, Ohio            |
+| KDRT | Del Rio International Airport         | Del Rio, Texas            |
+| KGRI | Central Nebraska Regional Airport     | Grand Island, Nebraska    |
+| KSAV | Savannah/Hilton Head International Airport | Savannah, Georgia         |
+| KOAK | Oakland International Airport         | Oakland, California       |
+| KMSY | Louis Armstrong New Orleans International Airport | New Orleans, Louisiana    |
+| KATT | Austin Executive Airport              | Austin, Texas             |
+| KGJT | Grand Junction Regional Airport       | Grand Junction, Colorado  |
+| KINL | Falls International Airport           | International Falls, Minnesota |
+| KSJT | San Angelo Regional Airport           | San Angelo, Texas         |
+| KGEG | Spokane International Airport         | Spokane, Washington       |
+| KBIS | Bismarck Municipal Airport            | Bismarck, North Dakota    |
+| KCLE | Cleveland Hopkins International Airport | Cleveland, Ohio           |
+| KTYR | Tyler Pounds Regional Airport         | Tyler, Texas              |
+| KLBF | North Platte Regional Airport         | North Platte, Nebraska    |
+| KTOL | Toledo Express Airport                | Toledo, Ohio              |
+| KCHA | Chattanooga Metropolitan Airport      | Chattanooga, Tennessee    |
+| KHLN | Helena Regional Airport               | Helena, Montana           |
+| KSLC | Salt Lake City International Airport  | Salt Lake City, Utah      |
+| KIPT | Williamsport Regional Airport         | Williamsport, Pennsylvania|
+| KGRR | Gerald R. Ford International Airport  | Grand Rapids, Michigan    |
+| KGSO | Piedmont Triad International Airport  | Greensboro, North Carolina|
+| KAVL | Asheville Regional Airport            | Asheville, North Carolina |
+| KMIA | Miami International Airport           | Miami, Florida            |
+| KOKC | Will Rogers World Airport             | Oklahoma City, Oklahoma   |
+| KABQ | Albuquerque International Sunport     | Albuquerque, New Mexico   |
+| KMFR | Rogue Valley International–Medford Airport | Medford, Oregon           |
+| KLAS | Harry Reid International Airport      | Las Vegas, Nevada         |
+| KMCO | Orlando International Airport         | Orlando, Florida          |
+| KERI | Erie International Airport            | Erie, Pennsylvania        |
+| KPAH | Barkley Regional Airport              | Paducah, Kentucky         |
+| KHTS | Tri-State Airport                     | Huntington, West Virginia |
+| KMDT | Harrisburg International Airport      | Harrisburg, Pennsylvania  |
+| KFSM | Fort Smith Regional Airport           | Fort Smith, Arkansas      |
+| KMOB | Mobile Regional Airport               | Mobile, Alabama           |
+| KROW | Roswell Air Center                    | Roswell, New Mexico       |
+| CYYZ | Toronto Pearson International Airport | Toronto, Ontario          |
+| KDAY | James M. Cox Dayton International Airport | Dayton, Ohio              |
+| KRST | Rochester International Airport       | Rochester, Minnesota      |
+| KDSM | Des Moines International Airport      | Des Moines, Iowa          |
+| KAZO | Kalamazoo/Battle Creek International Airport | Kalamazoo, Michigan       |
+| KRIC | Richmond International Airport        | Richmond, Virginia        |
+| KYKM | Yakima Air Terminal                   | Yakima, Washington        |
+| KROA | Roanoke–Blacksburg Regional Airport   | Roanoke, Virginia         |
+| KGLS | Scholes International Airport         | Galveston, Texas          |
+| KSHR | Sheridan County Airport               | Sheridan, Wyoming         |
+| KIAD | Washington Dulles International Airport | Dulles, Virginia          |
+| KMKE | Milwaukee Mitchell International Airport | Milwaukee, Wisconsin      |
+| KELP | El Paso International Airport         | El Paso, Texas            |
+| KILM | Wilmington International Airport      | Wilmington, North Carolina|
+| KANJ | Sault Ste. Marie Airport              | Sault Ste. Marie, Michigan|
+| KLIT | Bill and Hillary Clinton National Airport | Little Rock, Arkansas     |
+| KBGM | Greater Binghamton Airport            | Binghamton, New York      |
+| KBFL | Meadows Field Airport                 | Bakersfield, California   |
+| KDLH | Duluth International Airport          | Duluth, Minnesota         |
+| KFTW | Fort Worth Meacham International Airport | Fort Worth, Texas         |
+| KCQT | Los Angeles Downtown Heliport         | Los Angeles, California   |
+| KPHL | Philadelphia International Airport    | Philadelphia, Pennsylvania|
+| KILG | Wilmington Airport                    | Wilmington, Delaware      |
+| KBIL | Billings Logan International Airport  | Billings, Montana         |
+| KDEN | Denver International Airport          | Denver, Colorado          |
+| KSAN | San Diego International Airport       | San Diego, California     |
+| KLGA | LaGuardia Airport                     | New York, New York        |
+| KGLD | Renner Field/Goodland Municipal Airport | Goodland, Kansas          |
+| KCOU | Columbia Regional Airport             | Columbia, Missouri        |
+| KCAR | Caribou Municipal Airport             | Caribou, Maine            |
+| KSLE | Salem Municipal Airport (McNary Field)| Salem, Oregon             |
+| KACY | Atlantic City International Airport   | Atlantic City, New Jersey |
+| KHFD | Hartford–Brainard Airport             | Hartford, Connecticut     |
+| KORH | Worcester Regional Airport            | Worcester, Massachusetts  |
+| KPNS | Pensacola International Airport       | Pensacola, Florida        |
+| KLEX | Blue Grass Airport                    | Lexington, Kentucky       |
+| KBRO | Brownsville/South Padre Island International Airport | Brownsville, Texas        |
+| KABI | Abilene Regional Airport              | Abilene, Texas            |
+| KHVN | Tweed New Haven Airport               | New Haven, Connecticut    |
+| KJAN | Jackson–Medgar Wiley Evers International Airport | Jackson, Mississippi      |
+| KCON | Concord Municipal Airport             | Concord, New Hampshire    |
+| KBHM | Birmingham–Shuttlesworth International Airport | Birmingham, Alabama       |
+| KSJC | Norman Y. Mineta San Jose International Airport | San Jose, California      |
+| KCRP | Corpus Christi International Airport  | Corpus Christi, Texas     |
+| KOMA | Eppley Airfield                       | Omaha, Nebraska           |
+| KATL | Hartsfield–Jackson Atlanta International Airport | Atlanta, Georgia          |
+| KIND | Indianapolis International Airport    | Indianapolis, Indiana     |
+| KCHS | Charleston International Airport      | Charleston, South Carolina|
+| KAVP | Wilkes-Barre/Scranton International Airport | Avoca, Pennsylvania       |
+| KALB | Albany International Airport          | Albany, New York          |
+| KNYL | Yuma International Airport            | Yuma, Arizona             |
+| KYNG | Youngstown–Warren Regional Airport    | Youngstown, Ohio          |
+| KMDW | Chicago Midway International Airport  | Chicago, Illinois         |
+| KBDL | Bradley International Airport         | Windsor Locks, Connecticut|
+| KCVG | Cincinnati/Northern Kentucky International Airport | Hebron, Kentucky          |
+| KBAF | Westfield–Barnes Regional Airport     | Westfield, Massachusetts  |
+| KACT | Waco Regional Airport                 | Waco, Texas               |
+| KDAL | Dallas Love Field                     | Dallas, Texas             |
+| KFAR | Hector International Airport          | Fargo, North Dakota       |
+| KBWI | Baltimore–Washington International Thurgood Marshall Airport | Baltimore, Maryland       |
+| KSEA | Seattle–Tacoma International Airport  | Seattle, Washington       |
+| KMEM | Memphis International Airport         | Memphis, Tennessee        |
+| KLRD | Laredo International Airport          | Laredo, Texas             |
