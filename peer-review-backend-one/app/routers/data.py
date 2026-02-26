@@ -465,7 +465,7 @@ def get_weather(city: str, response: Response, db: Session = Depends(get_db)):
     try:
         result = db.execute(text("""
             SELECT City, FlowDate, HighLow, Value
-            FROM psa_weather_city_forecast
+            FROM psa_weather_city_forecast_mapped_view
             WHERE LOWER(City) = LOWER(:city)
             ORDER BY FlowDate DESC
             LIMIT 60

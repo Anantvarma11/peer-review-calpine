@@ -84,7 +84,7 @@ class FifteenMinUsage(Base):
 
 class WeatherForecast(Base):
     """Weather forecast data by city"""
-    __tablename__ = "psa_weather_city_forecast"
+    __tablename__ = "psa_weather_city_forecast_mapped_view"
     
     # Composite key: SiteCode + FlowDate + HighLow
     SiteCode = Column(String, primary_key=True)

@@ -1,3 +1,4 @@
+import os
 from typing import List, Union
 from pydantic import AnyHttpUrl, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,7 +53,12 @@ class Settings(BaseSettings):
 
     # Deployment
     BACKEND_CONNECTING_URL: str = ""
+    SSL_CERT_FILE: str = ""
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(case_sensitive=True, env_file="app.env", extra="ignore")
 
 settings = Settings()
+
+# Apply SSL fix if provided
+if settings.SSL_CERT_FILE:
+    os.environ["SSL_CERT_FILE"] = settings.SSL_CERT_FILE
