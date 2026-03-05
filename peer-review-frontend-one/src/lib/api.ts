@@ -2,11 +2,16 @@ import axios from 'axios';
 
 // Construct Base URL ensuring /api suffix
 const getBaseUrl = () => {
-    if (import.meta.env.VITE_API_BASE_URL) {
-        const url = import.meta.env.VITE_API_BASE_URL;
+    const envUrl = import.meta.env.VITE_API_BASE_URL;
+    // Same-origin: when frontend and backend are served together (e.g. Docker with nginx proxy)
+    if (envUrl === '' || envUrl === '.' || envUrl === 'same') {
+        return '/api';
+    }
+    if (envUrl) {
+        const url = envUrl;
         return url.endsWith('/api') ? url : `${url}/api`;
     }
-    // Default to localhost in dev, production url in prod
+    // Default: localhost in dev, Render in prod
     if (import.meta.env.DEV) {
         return 'http://127.0.0.1:8000/api';
     }

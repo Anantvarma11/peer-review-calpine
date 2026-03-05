@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Send, Mic, User, Bot, StopCircle, Sparkles, Volume2, VolumeX, Lightbulb } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { textToSpeech } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area } from 'recharts';
 
 // Web Speech API Types
@@ -169,7 +170,7 @@ export default function AskPage() {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isProcessing]);
 
-    // TTS Function
+    // TTS Function (uses api.ts base URL so it works on Vercel + Render backend)
     const speakText = async (text: string) => {
         if (!isVoiceEnabled) return;
 
@@ -177,22 +178,13 @@ export default function AskPage() {
             // Remove markdown for speech
             const cleanText = text.replace(/\*\*/g, '').replace(/\*/g, '');
 
-            // Call Backend TTS (Assuming proxy port 8000)
-            const response = await fetch('/api/ai/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: cleanText })
-            });
-
-            if (response.ok) {
-                const blob = await response.blob();
+            const blob = await textToSpeech(cleanText);
+            if (blob) {
                 const audio = new Audio(URL.createObjectURL(blob));
                 audio.play();
                 return;
-            } else {
-                console.warn("Backend TTS failed, falling back to browser.");
-                throw new Error("Backend TTS failed");
             }
+            throw new Error("Backend TTS failed");
         } catch (e) {
             // Fallback to Browser TTS
             console.log("Using Browser TTS Fallback");

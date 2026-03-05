@@ -1,7 +1,12 @@
 import os
+from pathlib import Path
 from typing import List, Union
 from pydantic import AnyHttpUrl, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Optional env file (e.g. missing on Vercel where env vars come from dashboard)
+_env_file = Path(__file__).resolve().parent.parent.parent / "app.env"
+_env_file = str(_env_file) if _env_file.exists() else None
 
 class Settings(BaseSettings):
     PROJECT_NAME: str
@@ -55,7 +60,7 @@ class Settings(BaseSettings):
     BACKEND_CONNECTING_URL: str = ""
     SSL_CERT_FILE: str = ""
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file="app.env", extra="ignore")
+    model_config = SettingsConfigDict(case_sensitive=True, env_file=_env_file, extra="ignore")
 
 settings = Settings()
 

@@ -1,0 +1,31 @@
+# Full-stack: frontend + backend together. One entrypoint (port 80).
+# Frontend serves the SPA; /api/* is proxied to the backend.
+# Build frontend with same-origin API so browser sends /api to this host (nginx proxies to backend).
+
+services:
+  backend:
+    build:
+      context: ./peer-review-backend-one
+      dockerfile: Dockerfile
+    container_name: peer-review-backend
+    env_file:
+      - ./peer-review-backend-one/.env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+    restart: unless-stopped
+    # Not exposed to host; only frontend nginx talks to backend
+
+  frontend:
+    build:
+      context: ./peer-review-frontend-one
+      dockerfile: Dockerfile
+      args:
+        # Same-origin /api so nginx proxies to backend (see api.ts getBaseUrl)
+        VITE_API_BASE_URL: "same"
+    container_name: peer-review-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
