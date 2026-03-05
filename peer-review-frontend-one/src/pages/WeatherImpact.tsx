@@ -18,12 +18,8 @@ interface Peer {
 }
 
 export default function WeatherImpact({ summary, customerId }: WeatherImpactProps) {
-    const userUsage = summary?.current_kwh || 850;
-    const peerAvgUsage = summary?.peer_avg_kwh || 988;
-
-    const [avgTemp, setAvgTemp] = useState<number>(78);
     const [zipCode, setZipCode] = useState<string>("75001");
-    const [selectedZone, setSelectedZone] = useState<string>("Zone A");
+    const [selectedZone, setSelectedZone] = useState<string>("North");
     const [searchQuery, setSearchQuery] = useState<string>("");
 
     const [peers, setPeers] = useState<Peer[]>([]);
@@ -59,17 +55,8 @@ export default function WeatherImpact({ summary, customerId }: WeatherImpactProp
                     }
                 }
 
-                const weatherData = await getWeatherForCity(city);
+                await getWeatherForCity(city);
 
-                if (weatherData && weatherData.length > 0) {
-                    let totalTemp = 0;
-                    weatherData.forEach((day: any) => {
-                        totalTemp += day.VALUE;
-                    });
-                    // Convert C to F: (C * 9/5) + 32
-                    const avgC = totalTemp / weatherData.length;
-                    setAvgTemp(Math.round((avgC * 9 / 5) + 32));
-                }
             } catch (err) {
                 console.error("Failed to load weather data", err);
             }
@@ -78,12 +65,6 @@ export default function WeatherImpact({ summary, customerId }: WeatherImpactProp
         fetchData();
     }, [customerId, summary]);
 
-    const getPeerTempImpact = () => {
-        // Updated thresholds for Fahrenheit
-        if (avgTemp > 95 || avgTemp < 40) return { value: avgTemp + 1, label: "High" };
-        if (avgTemp > 85 || avgTemp < 55) return { value: avgTemp, label: "Medium" };
-        return { value: avgTemp - 1, label: "Low" };
-    };
 
     const filteredPeers = peers.filter(peer =>
         (peer.zone === selectedZone || selectedZone === "All Zones") &&
@@ -93,10 +74,7 @@ export default function WeatherImpact({ summary, customerId }: WeatherImpactProp
     return (
         <div className="absolute inset-0 overflow-hidden">
             <IntelligenceMap
-                userUsage={userUsage}
                 zipCode={zipCode}
-                peerAvgUsage={peerAvgUsage}
-                peerTempImpact={getPeerTempImpact()}
                 hideHeader={true}
                 onPeersLoad={handlePeersLoad}
                 selectedPeerId={selectedPeerId}
@@ -107,7 +85,7 @@ export default function WeatherImpact({ summary, customerId }: WeatherImpactProp
             <div className="absolute left-3 top-3 bottom-3 w-[360px] z-[400] pointer-events-none">
                 <div className="h-full w-full bg-[var(--bg-surface-3)] border border-[var(--border-subtle)] shadow-2xl rounded-xl p-3 flex flex-col pointer-events-auto overflow-hidden opacity-100">
                     <div className="flex items-center justify-between mb-3 px-1">
-                        <h3 className="text-[11px] font-bold text-[var(--text-tertiary)] uppercase tracking-[0.1em]">Weather Analysis</h3>
+                        <h3 className="text-[11px] font-bold text-[var(--text-tertiary)] uppercase tracking-[0.1em]">Intelligence Map</h3>
                         <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                     </div>
 
@@ -120,9 +98,11 @@ export default function WeatherImpact({ summary, customerId }: WeatherImpactProp
                                 onChange={(e) => setSelectedZone(e.target.value)}
                                 className="appearance-none bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)] outline-none hover:border-[var(--text-accent)] transition-all cursor-pointer pr-8"
                             >
-                                <option>Zone A</option>
-                                <option>Zone B</option>
-                                <option>Zone C</option>
+                                <option>North</option>
+                                <option>East</option>
+                                <option>West</option>
+                                <option>South</option>
+                                <option>Central</option>
                             </select>
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-tertiary)] group-hover:text-[var(--text-accent)] transition-colors">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>

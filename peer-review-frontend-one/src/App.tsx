@@ -9,11 +9,12 @@ import { Loader2 } from 'lucide-react'
 
 // Lazy Load Pages
 const Home = lazy(() => import("@/pages/Home"))
-const MyUsage = lazy(() => import("@/pages/MyUsage"))
 const PeerAnalysis = lazy(() => import("@/pages/PeerAnalysis"))
 const WeatherImpact = lazy(() => import("@/pages/WeatherImpact"))
-const RecommendationPage = lazy(() => import("@/pages/RecommendationPage"))
+const WeatherImpact2 = lazy(() => import("@/pages/WeatherImpact2"))
+
 const ComparePlans = lazy(() => import("@/pages/ComparePlans"))
+const ManagePlan = lazy(() => import("@/pages/ManagePlan"))
 const AskPage = lazy(() => import("@/pages/AskPage"))
 const SupportPage = lazy(() => import("@/pages/SupportPage"))
 
@@ -79,11 +80,13 @@ function App() {
                     <Routes>
                         <Route path="/" element={<Navigate to="/dashboard" replace />} />
                         <Route path="/dashboard" element={<Home summary={summary} loading={loading} customerId={customerId} />} />
-                        <Route path="/usage" element={<MyUsage />} />
+                        <Route path="/usage" element={<Navigate to="/dashboard" replace />} />
                         <Route path="/peer" element={<PeerAnalysis summary={summary} loading={loading} customerId={customerId} />} />
                         <Route path="/weather" element={<WeatherImpact customerId={customerId} summary={summary} />} />
-                        <Route path="/recommendation" element={<RecommendationPage customerId={customerId} />} />
+                        <Route path="/weather-2" element={<WeatherImpact2 customerId={customerId} />} />
+
                         <Route path="/compare-plans" element={<ComparePlans customerId={customerId} />} />
+                        <Route path="/manage-plan" element={<ManagePlan customerId={customerId} />} />
                         <Route path="/ask" element={<AskPage />} />
                         <Route path="/support" element={<SupportPage customerId={customerId} />} />
                         <Route path="*" element={<Navigate to="/" replace />} />

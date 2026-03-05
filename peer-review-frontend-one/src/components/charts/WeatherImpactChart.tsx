@@ -170,7 +170,7 @@ export function WeatherImpactChart() {
                             key={key}
                             onClick={() => setActiveMetric(key)}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap border ${activeMetric === key
-                                ? 'bg-slate-800 text-white border-slate-800 shadow-md transform scale-105'
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md transform scale-105'
                                 : 'bg-white text-[var(--text-secondary)] border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                                 }`}
                         >

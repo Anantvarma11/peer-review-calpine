@@ -43,8 +43,14 @@ async function cachedGet<T>(key: string, fetcher: () => Promise<T>): Promise<T> 
     return promise;
 }
 
+export const getUsageSummary = (customerId: string) =>
+    cachedGet(`usage_summary:${customerId}`, () => api.get(`/usage/${customerId}`).then(r => r.data));
+
 export const getMonthlyUsage = (customerId: string) =>
     cachedGet(`monthly:${customerId}`, () => api.get(`/usage/monthly/${customerId}`).then(r => r.data));
+
+export const getAnnualUsage = (customerId: string) =>
+    cachedGet(`annual:${customerId}`, () => api.get(`/usage/annual/${customerId}`).then(r => r.data));
 
 export const getDailyUsage = (customerId: string, params?: { start_date?: string, end_date?: string }) =>
     cachedGet(`daily:${customerId}:${JSON.stringify(params)}`, () => api.get(`/usage/daily/${customerId}`, { params }).then(r => r.data));
@@ -59,6 +65,9 @@ export const chatWithAI = async (customerId: string, message: string) => {
     const response = await api.post(`/ai/insights/${customerId}/chat`, { message });
     return response.data;
 };
+
+export const getAiInsights = (customerId: string, category: string = 'general') =>
+    cachedGet(`insights:${customerId}:${category}`, () => api.get(`/ai/insights/${customerId}`, { params: { category } }).then(r => r.data));
 
 export const dashboardAskAI = async (customerId: string, query: string, context: any = {}) => {
     // Determine context based on current page URL? For now passed in.
@@ -112,6 +121,9 @@ export const analyzeChartData = async (chartType: string, dataContext: any) => {
     const response = await api.post('/ai/analyze-chart', { chart_type: chartType, data_context: dataContext });
     return response.data.analysis;
 };
+
+export const getPeers = (customerId: string) =>
+    cachedGet(`peers:${customerId}`, () => api.get(`/peers/${customerId}`).then(r => r.data));
 
 export const getBillAnalysis = async (customerId: string, currentMonth: string, compareMonth: string) => {
     try {
@@ -189,6 +201,20 @@ export const getPeerComparison = (customerId: string, filters: PeerFilters) =>
             };
         }
     });
+
+export const login = async (username: string, password: string, grant_type: string = 'password') => {
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('password', password);
+    params.append('grant_type', grant_type);
+
+    const response = await api.post('/auth/token', params, {
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    });
+    return response.data;
+};
 
 export default api;
 

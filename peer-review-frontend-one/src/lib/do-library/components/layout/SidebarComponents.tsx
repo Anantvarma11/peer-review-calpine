@@ -253,7 +253,7 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({ path, icon: Icon, labe
 };
 
 interface SidebarSectionProps {
-    title: string;
+    title?: string;
     children: React.ReactNode;
     paths?: string[];
 }
@@ -263,7 +263,7 @@ export const SidebarSection: React.FC<SidebarSectionProps> = ({ title, children 
 
     return (
         <div className={styles.section}>
-            <div className={styles.sectionTitle}>{title}</div>
+            {title && <div className={styles.sectionTitle}>{title}</div>}
             {children}
         </div>
     );

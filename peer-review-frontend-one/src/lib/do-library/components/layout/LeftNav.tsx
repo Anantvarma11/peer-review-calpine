@@ -1,13 +1,5 @@
-import {
-    Sidebar,
-    SidebarBrand,
-    SidebarDivider,
-    SidebarScrollContainer,
-    SidebarSection,
-    SidebarItem,
-    SidebarProfile
-} from './SidebarComponents.tsx';
-import { Icons } from '../NavIcons.tsx';
+import { Sidebar, SidebarBrand, SidebarDivider, SidebarScrollContainer, SidebarSection, SidebarItem, SidebarProfile } from './SidebarComponents';
+import { Icons } from '../NavIcons';
 
 export const LeftNav = () => {
     return (
@@ -16,22 +8,22 @@ export const LeftNav = () => {
             <SidebarDivider />
 
             <SidebarScrollContainer>
-                <SidebarSection title="Home" paths={['/dashboard', '/usage']}>
+                <SidebarSection title="Insights" paths={['/dashboard']}>
                     <SidebarItem path="/dashboard" icon={Icons.Dashboard} label="Dashboard" />
-                    <SidebarItem path="/usage" icon={Icons.Usage} label="My Usage" />
                 </SidebarSection>
 
-                <SidebarSection title="Analysis" paths={['/peer', '/weather']}>
+                <SidebarSection title="Analysis" paths={['/peer', '/weather-2', '/weather']}>
                     <SidebarItem path="/peer" icon={Icons.Agents} label="Peer Analysis" />
-                    <SidebarItem path="/weather" icon={Icons.Weather} label="Weather Impact" />
+                    <SidebarItem path="/weather-2" icon={Icons.Weather} label="Weather Impact" />
+                    <SidebarItem path="/weather" icon={Icons.Weather} label="Map" />
                 </SidebarSection>
 
-                <SidebarSection title="Billing" paths={['/recommendation', '/compare-plans']}>
-                    <SidebarItem path="/recommendation" icon={Icons.Star} label="Recommendations" />
+                <SidebarSection title="Plan & Actions" paths={['/manage-plan', '/compare-plans']}>
+                    <SidebarItem path="/manage-plan" icon={Icons.Config} label="Manage Plan" />
                     <SidebarItem path="/compare-plans" icon={Icons.Chart} label="Compare Plans" />
                 </SidebarSection>
 
-                <SidebarSection title="Service" paths={['/ask', '/support']}>
+                <SidebarSection title="Support" paths={['/ask', '/support']}>
                     <SidebarItem path="/ask" icon={Icons.Search} label="Ask (AI)" />
                     <SidebarItem path="/support" icon={Icons.Help} label="Support Hub" />
                 </SidebarSection>

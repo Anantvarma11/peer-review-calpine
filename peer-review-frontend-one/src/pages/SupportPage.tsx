@@ -234,7 +234,7 @@ export default function SupportPage({ customerId }: { customerId: string }) {
 
                     {/* Category Cards Grid */}
                     <div className="px-6 -mt-10 relative z-10">
-                        <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                        <div className="max-w-[1440px] mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                             {FAQ_CATEGORIES.map(cat => (
                                 <button
                                     key={cat.id}
@@ -254,7 +254,7 @@ export default function SupportPage({ customerId }: { customerId: string }) {
 
                     {/* Quick Actions Row */}
                     <div className="px-6 mt-12">
-                        <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-5">
+                        <div className="max-w-[1440px] mx-auto grid grid-cols-1 sm:grid-cols-3 gap-5">
                             {/* Chat with AI */}
                             <button
                                 onClick={() => setView('chat')}
@@ -309,7 +309,7 @@ export default function SupportPage({ customerId }: { customerId: string }) {
             {/* ═══ CATEGORY VIEW ═══ */}
             {view === 'category' && selectedCategory && (
                 <div className="px-6 py-6">
-                    <div className="max-w-3xl mx-auto">
+                    <div className="max-w-[1440px] mx-auto">
                         <button onClick={() => { setView('home'); setExpandedQ(null); }} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 mb-6 transition-colors">
                             <ArrowLeft className="h-4 w-4" /> Back to Support
                         </button>
@@ -364,7 +364,7 @@ export default function SupportPage({ customerId }: { customerId: string }) {
             {/* ═══ CHAT VIEW ═══ */}
             {view === 'chat' && (
                 <div className="px-6 py-6">
-                    <div className="max-w-2xl mx-auto">
+                    <div className="max-w-[1440px] w-full mx-auto">
                         <button onClick={() => setView('home')} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 mb-6 transition-colors">
                             <ArrowLeft className="h-4 w-4" /> Back to Support
                         </button>
@@ -445,7 +445,7 @@ export default function SupportPage({ customerId }: { customerId: string }) {
             {/* ═══ NEW TICKET VIEW ═══ */}
             {view === 'new-ticket' && (
                 <div className="px-6 py-6">
-                    <div className="max-w-2xl mx-auto">
+                    <div className="max-w-[1440px] w-full mx-auto">
                         <button onClick={() => setView('home')} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 mb-6 transition-colors">
                             <ArrowLeft className="h-4 w-4" /> Back to Support
                         </button>
@@ -522,7 +522,7 @@ export default function SupportPage({ customerId }: { customerId: string }) {
             {/* ═══ TICKETS LIST VIEW ═══ */}
             {view === 'tickets' && (
                 <div className="px-6 py-6">
-                    <div className="max-w-3xl mx-auto">
+                    <div className="max-w-[1440px] w-full mx-auto">
                         <button onClick={() => setView('home')} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 mb-6 transition-colors">
                             <ArrowLeft className="h-4 w-4" /> Back to Support
                         </button>

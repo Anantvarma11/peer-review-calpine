@@ -389,7 +389,7 @@ export default function AskPage() {
 
             {/* Chat Area */}
             <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
-                <div className="max-w-3xl mx-auto space-y-8 pb-4">
+                <div className="max-w-[1440px] w-full mx-auto space-y-8 pb-4">
                     {messages.map((msg) => (
                         <div key={msg.id} className={cn("flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500", msg.role === 'user' ? "flex-row-reverse" : "")}>
                             <div className={cn(
@@ -445,7 +445,7 @@ export default function AskPage() {
 
             {/* Input */}
             <div className="flex-none p-6 bg-white border-t border-slate-200">
-                <div className="max-w-3xl mx-auto relative">
+                <div className="max-w-[1440px] w-full mx-auto relative">
                     <div className={cn(
                         "absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl opacity-20 transition duration-300 blur",
                         isListening ? "animate-pulse opacity-50" : "opacity-0"

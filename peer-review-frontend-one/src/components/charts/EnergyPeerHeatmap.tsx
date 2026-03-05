@@ -1,18 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { createPortal } from 'react-dom';
 import { Card, CardContent } from '@/components/ui/Card';
-import { Sun, Moon } from 'lucide-react';
+import { Sun, Moon, Info, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, ComposedChart, Line } from 'recharts';
+import { SimpleTooltip } from '@/components/ui/SimpleTooltip';
 import { mergeClasses } from '@fluentui/react-components';
 import { SparkleRegular } from '@fluentui/react-icons';
-import { AskAIBar } from '@/components/ai/AskAIBar';
-import { HIST_YEARS, HIST_MONTHLY, peerMonthly, monthTotals, RATE, PEAK_HOURS, hourAvgs, dowAvgs, DOW_NAMES } from '@/lib/usageDummyData';
+import { HIST_YEARS, HIST_MONTHLY, RATE } from '@/lib/usageDummyData';
+import { getMonthlyUsage, getCustomer, getWeatherForCity } from '@/lib/api';
 
 // ── CONSTANTS ────────────────────────────────────────────
 const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MNF = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const GUTTER_W = 64; // Width for y-axis and legends on the left
-const WEEKEND_DAYS = new Set([5, 6]);
+
 
 
 function getDaysInMonth(year: number) {
@@ -86,17 +89,66 @@ function getDow(year: number, m: number, d: number) {
 interface EnergyPeerHeatmapProps {
     hideTabs?: boolean;
     hideHeatmap?: boolean;
+    hideHeatmapGridOnly?: boolean;
     hideTrendLine?: boolean;
     isMyUsagePage?: boolean;
+    customerId?: string;
+    externalInsights?: any[];
+    hidePeerComparison?: boolean;
+    useWeatherTabs?: boolean;
+    hideSidebar?: boolean;
 }
 
-export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, hideHeatmap, hideTrendLine, isMyUsagePage }) => {
-    const [activeYear, setActiveYear] = useState(new Date().getFullYear());
+export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, hideHeatmap, hideHeatmapGridOnly, hideTrendLine, isMyUsagePage, customerId, externalInsights, hidePeerComparison, useWeatherTabs = false, hideSidebar = false }) => {
+    const [activeYear, setActiveYear] = useState(2026); // Use a baseline year for data
+    const [activeFilter, setActiveFilter] = useState<'Hot Days' | 'Cool Days' | 'Humid' | 'None'>('None');
     const [viewMode] = useState<'annual' | 'monthly' | 'daily'>('annual');
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [activeMonth, setActiveMonth] = useState(-1);
     const [hoverData, setHoverData] = useState<any>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+    const [actualMonthlyData, setActualMonthlyData] = useState<any[]>([]);
+    const [weatherData, setWeatherData] = useState<any[]>([]);
+    const [selectedDayDetail, setSelectedDayDetail] = useState<any | null>(null);
+    const [selectedMonthPerfDetail, setSelectedMonthPerfDetail] = useState<{ month: number; year: number } | null>(null);
+
+    const { histYears, histMonthly } = useMemo(() => {
+        if (!actualMonthlyData || actualMonthlyData.length === 0) {
+            return {
+                histYears: HIST_YEARS as unknown as number[],
+                histMonthly: HIST_MONTHLY as unknown as Record<number, number[]>
+            };
+        }
+
+        const yearsSet = new Set<number>();
+        actualMonthlyData.forEach(d => {
+            if (d.BILLING_MONTH) {
+                const y = new Date(d.BILLING_MONTH).getFullYear();
+                yearsSet.add(y);
+            }
+        });
+        const years = Array.from(yearsSet).sort((a, b) => a - b);
+
+        const monthlyData: Record<number, number[]> = {};
+        years.forEach(y => {
+            monthlyData[y] = Array(12).fill(0);
+        });
+
+        actualMonthlyData.forEach(d => {
+            if (d?.BILLING_MONTH) {
+                const date = new Date(d.BILLING_MONTH);
+                if (!isNaN(date.getTime())) {
+                    const y = date.getFullYear();
+                    const m = date.getMonth();
+                    if (y in monthlyData) {
+                        monthlyData[y][m] = d.MONTHLY_KWH || 0;
+                    }
+                }
+            }
+        });
+
+        return { histYears: years, histMonthly: monthlyData as Record<number, number[]> };
+    }, [actualMonthlyData]);
 
     const axisColor = "var(--text-secondary)";
     const gridColor = "var(--border-default)";
@@ -105,6 +157,36 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
     const tooltipText = "var(--text-primary)";
     const [monthRects, setMonthRects] = useState<any[]>([]);
     const [sidebarTab, setSidebarTab] = useState<'insights' | 'chat'>('insights');
+    const [chatMessages, setChatMessages] = useState<any[]>([
+        { role: 'assistant', content: 'Hi! Ask me anything about your energy usage.' }
+    ]);
+    const [chatInput, setChatInput] = useState('');
+    const [isChatLoading, setIsChatLoading] = useState(false);
+    const chatScrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        }
+    }, [chatMessages]);
+
+    const handleChatSend = async () => {
+        if (!chatInput.trim() || isChatLoading || !customerId) return;
+        const msg = chatInput.trim();
+        setChatInput('');
+        setChatMessages(prev => [...prev, { role: 'user', content: msg }]);
+        setIsChatLoading(true);
+
+        try {
+            const { chatWithAI } = await import('@/lib/api');
+            const data = await chatWithAI(customerId, msg);
+            setChatMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+        } catch (err) {
+            setChatMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I'm having trouble connecting right now." }]);
+        } finally {
+            setIsChatLoading(false);
+        }
+    };
 
     const insightsData = [
         {
@@ -162,17 +244,57 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
     const cardRef = useRef<HTMLDivElement>(null);
     const chartContainerRef = useRef<HTMLDivElement>(null);
 
+    // Fetch Actual Monthly Data
+    useEffect(() => {
+        setActualMonthlyData([]); // Clear previous data
+        if (customerId) {
+            getMonthlyUsage(customerId).then(data => {
+                if (data && Array.isArray(data)) {
+                    setActualMonthlyData(data);
+                }
+            });
+
+            // Fetch Weather Data
+            getCustomer(customerId).then(customer => {
+                if (customer?.Service_City) {
+                    getWeatherForCity(customer.Service_City).then(weather => {
+                        if (weather && Array.isArray(weather)) {
+                            setWeatherData(weather);
+                        }
+                    });
+                }
+            });
+        }
+    }, [customerId]);
+
     // Generate Data (Memoized)
     const { yearData, allDays, neighbours, monthStats, dayPeerStats, DIM } = useMemo(() => {
+        const now = new Date();
+        const curY = now.getFullYear();
+        const curM = now.getMonth();
+        const curD = now.getDate();
+
         const DIM = getDaysInMonth(activeYear);
         const rand = seededRand(activeYear * 10000 + 101);
         const yData = PROFILES.map((p, m) =>
             Array.from({ length: DIM[m] }, (_, di) => {
+                const dayVal = di + 1;
+                const isFuture = activeYear > curY || (activeYear === curY && (m > curM || (m === curM && dayVal > curD)));
+
+                const mDateStr = `${activeYear}-${String(m + 1).padStart(2, '0')}-${String(dayVal).padStart(2, '0')}`;
+                const dayWeather = weatherData.filter(w => w.FLOW_DATE === mDateStr);
+                const highObj = dayWeather.find(w => w.HIGH_LOW === 'HIGH');
+                const lowObj = dayWeather.find(w => w.HIGH_LOW === 'LOW');
+
                 const tp = TEMP_PROFILES[m];
-                const tempMin = +(tp.min + (rand() - 0.5) * 3).toFixed(1);
-                const tempMax = +(tp.max + (rand() - 0.5) * 4).toFixed(1);
+                let tempMin = +(tp.min + (rand() - 0.5) * 3).toFixed(1);
+                let tempMax = +(tp.max + (rand() - 0.5) * 4).toFixed(1);
+
+                if (lowObj) tempMin = lowObj.VALUE;
+                if (highObj) tempMax = highObj.VALUE;
+
                 const tempAvg = +((tempMin + tempMax) / 2).toFixed(1);
-                const totalKwh = +(p.kwh * (0.55 + rand() * 0.9)).toFixed(1);
+                const totalKwh = isFuture ? 0 : +(p.kwh * (0.55 + rand() * 0.9)).toFixed(1);
                 const dayRatio = 0.55 + rand() * 0.2;
                 const dayKwh = +(totalKwh * dayRatio).toFixed(1);
                 const nightKwh = +(totalKwh - dayKwh).toFixed(1);
@@ -205,24 +327,23 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                     return +(baseLimit * (0.9 + lRand * 0.4)).toFixed(2);
                 });
 
+                const seedVal = (activeYear * 20000) + (m * 700) + ((di + 1) * 55);
+                const peerAvg = isFuture ? 0 : +(p.avg * (0.70 + seededRand(seedVal + 100)() * 0.6)).toFixed(1);
+                const calculatedPct = isFuture ? 0 : Math.max(2, Math.min(98, Math.round((totalKwh / Math.max(0.1, totalKwh + peerAvg)) * 100)));
+
                 return {
                     kwh: totalKwh,
                     dayKwh,
                     nightKwh,
                     hourlyKwh: scaledHourly,
                     hourlyLimit: scaledLimit,
-                    avg: +(p.avg * (0.70 + rand() * 0.6)).toFixed(1),
-                    pct: Math.max(2, Math.min(98, Math.round(p.pct + (rand() - 0.5) * 44))),
+                    avg: peerAvg,
+                    pct: calculatedPct,
                     tempMin, tempMax, tempAvg,
                     m, d: di + 1
                 };
             })
         );
-
-        const days: any[] = [];
-        yData.forEach(mArr => mArr.forEach(d => {
-            days.push(d);
-        }));
 
         const nbrRandGen = seededRand(99887766);
         const nbrs = Array.from({ length: 47 }, (_, i) => {
@@ -245,16 +366,72 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
             })
         );
 
-        const myMonthly = yData.map(mArr => +mArr.reduce((s, d) => s + d.kwh, 0).toFixed(0));
+        const myMonthly = yData.map((mArr, mIndex) => {
+            const monthStr = `${activeYear}-${String(mIndex + 1).padStart(2, '0')}`;
+            const actual = actualMonthlyData.find(d => d.BILLING_MONTH.startsWith(monthStr));
+
+            const isCurrent = activeYear === curY && mIndex === curM;
+
+            if (actual) {
+                const kwh = Math.round(actual.MONTHLY_KWH);
+                return {
+                    kwh,
+                    cost: actual.AMT_BILLED !== undefined && actual.AMT_BILLED !== null ? actual.AMT_BILLED : (isCurrent ? kwh * 0.12 : null),
+                    label: isCurrent ? 'Est. Cost' : 'Bill',
+                    isCurrent,
+                    isActual: true
+                };
+            }
+
+            const isFutureMonth = activeYear > curY || (activeYear === curY && mIndex > curM);
+            if (isFutureMonth) {
+                return { kwh: 0, cost: null, label: 'Est. Cost', isCurrent: false, isActual: false };
+            }
+
+            const currentKwh = +mArr.reduce((s, d) => s + d.kwh, 0).toFixed(0);
+            return {
+                kwh: currentKwh,
+                cost: isCurrent ? currentKwh * 0.12 : null,
+                label: isCurrent ? 'Est. Cost' : 'Bill',
+                isCurrent,
+                isActual: false
+            };
+        });
+
+        // Scale yData to match myMonthly totals (Consistency between Heatmap and Bars)
+        yData.forEach((mArr, m) => {
+            const actualTotal = myMonthly[m].kwh;
+            const mockTotal = mArr.reduce((s, d) => s + d.kwh, 0);
+            if (mockTotal > 0 && actualTotal !== mockTotal) {
+                const ratio = actualTotal / mockTotal;
+                mArr.forEach(d => {
+                    d.kwh = +(d.kwh * ratio).toFixed(2);
+                    d.dayKwh = +(d.dayKwh * ratio).toFixed(2);
+                    d.nightKwh = +(d.nightKwh * ratio).toFixed(2);
+                    if (d.hourlyKwh) {
+                        d.hourlyKwh = d.hourlyKwh.map(h => +(h * ratio).toFixed(2));
+                    }
+                });
+            }
+        });
+
+        const days: any[] = [];
+        yData.forEach(mArr => mArr.forEach(d => {
+            days.push(d);
+        }));
 
         const mStats = MN.map((_, m) => {
             const vals = nbrs.map((_, ni) => ({ ni, kwh: nbrMonthly[ni][m] }));
             vals.sort((a, b) => b.kwh - a.kwh);
             const highest = vals[0];
             const lowest = vals[vals.length - 1];
-            const predictedKwh = +(myMonthly[m] * (0.85 + rand() * 0.3)).toFixed(0);
+            const predictedKwh = +(myMonthly[m].kwh * (0.85 + rand() * 0.3)).toFixed(0);
             return {
-                myKwh: myMonthly[m],
+                myKwh: myMonthly[m].kwh,
+                cost: myMonthly[m].cost,
+                label: myMonthly[m].label,
+                isCurrent: myMonthly[m].isCurrent,
+                isActual: myMonthly[m].isActual,
                 predictedKwh,
                 highestNi: highest.ni,
                 highestKwh: highest.kwh,
@@ -288,7 +465,6 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                 };
             })
         );
-
         return {
             yearData: yData,
             allDays: days,
@@ -297,11 +473,143 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
             dayPeerStats: dPeerStats,
             DIM
         };
-    }, [activeYear]);
+    }, [activeYear, actualMonthlyData]);
+
+    // Hourly data for the selected day in popup
+    const selectedDayHourlyData = useMemo(() => {
+        if (!selectedDayDetail) return [];
+        const total = selectedDayDetail.kwh || 15;
+        const peerTotal = selectedDayDetail.avg || 20;
+
+        return Array.from({ length: 24 }, (_, i) => {
+            const ampm = i >= 12 ? 'PM' : 'AM';
+            const hourLabel = `${i % 12 || 12}${ampm}`;
+            const baseFactor = Math.sin((i - 6) / 12 * Math.PI) + 1;
+            const morningPeak = Math.exp(-Math.pow(i - 8, 2) / 4);
+            const eveningPeak = Math.exp(-Math.pow(i - 19, 2) / 8);
+            const multiplier = (0.2 + baseFactor * 0.3 + morningPeak * 0.8 + eveningPeak * 1.2);
+
+            return {
+                time: hourLabel,
+                value: (total / 24) * multiplier * (0.8 + Math.random() * 0.4),
+                peer: (peerTotal / 24) * multiplier * (0.7 + Math.random() * 0.3),
+                temp: 65 + Math.sin((i - 10) / 12 * Math.PI) * 15 + Math.random() * 2,
+                predicted: (total / 24) * multiplier * (0.9 + Math.random() * 0.2)
+            };
+        });
+    }, [selectedDayDetail]);
+
+    const selectedMonthPerformanceData = useMemo(() => {
+        if (!selectedMonthPerfDetail) return [];
+        const { month } = selectedMonthPerfDetail;
+        const mDays = yearData[month] || [];
+        const mPeer = dayPeerStats[month] || [];
+
+        return mDays.map((d, i) => ({
+            day: d.d,
+            label: `${d.d}`,
+            value: d.kwh,
+            predicted: mPeer[i]?.predictedKwh || d.kwh * 0.95,
+            temp: d.tempAvg,
+            peer: mPeer[i]?.lowestKwh || d.kwh * 0.8 // Using peer average as something lower
+        }));
+    }, [selectedMonthPerfDetail, yearData, dayPeerStats]);
+
+    const CustomTooltip = ({ active, payload, label }: any) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="bg-white border-2 border-slate-100 shadow-[0_10px_30px_rgba(0,0,0,0.12)] rounded-xl p-3 text-[11px] min-w-[200px] backdrop-blur-sm bg-white/95">
+                    <div className="font-extrabold text-slate-800 mb-2 border-b border-slate-50 pb-1.5 flex items-center justify-between">
+                        <span>{label}</span>
+                        <Zap size={10} className="text-blue-500" />
+                    </div>
+                    <div className="space-y-1.5">
+                        {payload.map((entry: any, index: number) => {
+                            const val = typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value;
+                            let color = entry.color;
+                            let name = entry.name;
+                            let suffix = " kWh";
+
+                            if (name?.toLowerCase().includes('peer')) {
+                                color = '#1E293B'; // Brighter visibility contrast
+                                name = 'Peer Baseline';
+                            } else if (name?.toLowerCase().includes('you') || entry.dataKey === 'value') {
+                                color = '#2563EB'; // Blue 600
+                                name = 'Your Usage';
+                            } else if (name?.toLowerCase().includes('temp')) {
+                                color = '#059669'; // Emerald 600
+                                name = 'Temperature';
+                                suffix = "°F";
+                            } else if (name?.toLowerCase().includes('predicted')) {
+                                color = '#7C3AED'; // Violet 600
+                                name = 'Predicted';
+                            }
+
+                            return (
+                                <div key={index} className="flex justify-between items-center gap-4">
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+                                        <span className="font-bold uppercase tracking-tight text-[10px]" style={{ color }}>{name}:</span>
+                                    </div>
+                                    <span className="font-black text-slate-900">{val}{suffix}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    };
+
+    const handlePrevNextDay = (direction: 'prev' | 'next') => {
+        if (!selectedDayDetail) return;
+
+        const currentIndex = allDays.findIndex(d => d.m === selectedDayDetail.m && d.d === selectedDayDetail.d);
+        if (currentIndex === -1) return;
+
+        const newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
+        if (newIndex >= 0 && newIndex < allDays.length) {
+            const nextDay = allDays[newIndex];
+            setSelectedDayDetail({
+                ...nextDay,
+                label: `${nextDay.d} ${MNF[nextDay.m]}`,
+                my: nextDay.kwh,
+                peer: nextDay.avg
+            });
+        }
+    };
+
+    const handlePrevNextMonth = (direction: 'prev' | 'next') => {
+        if (!selectedMonthPerfDetail) return;
+        let { month, year } = selectedMonthPerfDetail;
+        if (direction === 'prev') {
+            if (month === 0) {
+                month = 11;
+                year -= 1;
+            } else {
+                month -= 1;
+            }
+        } else {
+            if (month === 11) {
+                month = 0;
+                year += 1;
+            } else {
+                month += 1;
+            }
+        }
+
+        // Only allow within supported years
+        if (year < 2024) year = 2024;
+        if (year > 2026) year = 2026;
+
+        setActiveYear(year);
+        setSelectedMonthPerfDetail({ month, year });
+    };
 
     // Handle Measurements
     const updateMeasurements = useCallback(() => {
-        if (hideHeatmap) {
+        if (hideHeatmap || hideHeatmapGridOnly) {
             if (chartContainerRef.current) {
                 const w = chartContainerRef.current.offsetWidth - GUTTER_W;
                 const slotW = w / 12;
@@ -346,13 +654,22 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
         const allMin = Math.min(...allDays.map(d => d.tempMin));
         const allMax = Math.max(...allDays.map(d => d.tempMax));
         const tRange = (allMax - allMin) || 1;
-        const H = 240; // Matched with Peer Comparison chart
-        const PAD_T = 28, PAD_B = 32; // Matching Peer Comparison chart padding
+        const H = 450; // Increased height for better clarity
+        const PAD_T = 60, PAD_B = 40; // More room for labels and ticks
         const chartH = H - PAD_T - PAD_B;
         const yS = (t: number) => PAD_T + chartH - ((t - allMin) / tRange) * chartH;
 
         // kWh Scale (Left Axis)
-        const maxKwh = Math.max(...monthStats.map(s => s.myKwh)) * 1.1;
+        // Combine current year and historical data to find true max
+        const allUsages = [...monthStats.map(s => s.myKwh)];
+        if (hideHeatmap) {
+            histYears.forEach(y => {
+                if (histMonthly[y]) {
+                    histMonthly[y].forEach(val => allUsages.push(val));
+                }
+            });
+        }
+        const maxKwh = Math.max(...allUsages, 100) * 1.2; // 20% headroom
         const yKwh = (v: number) => PAD_T + chartH - (v / maxKwh) * chartH;
 
         return { yS, allMin, allMax, H, PAD_T, chartH, maxKwh, yKwh };
@@ -367,10 +684,10 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
             <style dangerouslySetInnerHTML={{
                 __html: `
                 .month-block { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
-                .month-grid { display: grid; grid-template-columns: repeat(7, 7px); gap: 1px; }
-                .day-cell { width: 7px; height: 7px; border-radius: 1.2px; cursor: pointer; transition: transform .1s, outline .1s; }
+                .month-grid { display: grid; grid-template-columns: repeat(7, 7px); gap: 2px; }
+                .day-cell { width: 7px; height: 7px; border-radius: 1.2px; cursor: pointer; transition: transform .1s; border: none; }
                 .day-cell.empty { background: transparent; cursor: default; pointer-events: none; }
-                .day-cell:not(.empty):not(.future):hover { transform: scale(3); z-index: 50; outline: 1px solid rgba(0,0,0,.25); }
+                .day-cell:not(.empty):not(.future):hover { transform: scale(3); z-index: 50; }
                 .day-cell.future { background: #E5E7EB !important; cursor: default; opacity: 0.5; }
                 .m-col { transition: opacity 0.15s; }
 
@@ -383,12 +700,37 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                     background: ${tooltipBg}; 
                     border: 1px solid ${tooltipBorder}; 
                     color: ${tooltipText};
-                    border-radius: 8px; 
+                    border-radius: 12px; 
                     pointer-events: none; 
                     z-index: 999; 
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.12); 
-                    padding: 12px; 
-                    min-width: 220px; 
+                    box-shadow: 0 10px 30px -5px rgba(0,0,0,0.2), 0 4px 10px -2px rgba(0,0,0,0.1); 
+                    padding: 16px; 
+                    width: 200px;
+                    max-width: 200px;
+                    font-size: 11px;
+                    line-height: 1.5;
+                    overflow-wrap: break-word;
+                    backdrop-blur: 8px;
+                }
+                .tooltip-section-title {
+                    font-size: 10px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    color: var(--text-secondary);
+                    margin-bottom: 8px;
+                    border-bottom: 1px solid var(--border-subtle);
+                    padding-bottom: 4px;
+                }
+                .tooltip-formula {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+                    background: rgba(0,0,0,0.03);
+                    padding: 4px 6px;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    margin: 6px 0;
+                    display: block;
+                    border: 1px solid rgba(0,0,0,0.05);
                 }
             `}} />
 
@@ -398,26 +740,49 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                     <div className="flex flex-col lg:flex-row gap-3">
                         <div ref={cardRef} className="flex-1 min-w-0">
 
-                            {/* Sub-header: year tabs or year dropdown + month tabs */}
-                            {!hideTabs && (viewMode === 'annual' ? (
+                            {/* Sub-header: weather filters or year tabs */}
+                            {!hideTabs && (
                                 <div className="mb-4">
                                     <div className="flex items-center gap-1 p-1 bg-[var(--bg-surface-2)] rounded-lg w-fit">
-                                        {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(y => (
-                                            <button
-                                                key={y}
-                                                onClick={() => setActiveYear(y)}
-                                                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${activeYear === y
-                                                    ? 'bg-[var(--bg-surface-1)] text-[var(--text-primary)] border border-[var(--border-subtle)]'
-                                                    : 'text-[var(--text-secondary)] hover:text-blue-600 transition-colors'
-                                                    }`}
-                                            >
-                                                {y}
-                                            </button>
-                                        ))}
+                                        {useWeatherTabs ? (
+                                            ['Hot Days', 'Cool Days', 'Humid'].map(f => (
+                                                <button
+                                                    key={f}
+                                                    onClick={() => setActiveFilter(f as any)}
+                                                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${activeFilter === f
+                                                        ? 'bg-[var(--bg-surface-1)] text-[var(--text-primary)] border border-[var(--border-subtle)] shadow-sm'
+                                                        : 'text-[var(--text-secondary)] hover:text-blue-600 transition-colors'
+                                                        }`}
+                                                >
+                                                    {f}
+                                                </button>
+                                            ))
+                                        ) : (
+                                            [2024, 2025, 2026].map(y => (
+                                                <button
+                                                    key={y}
+                                                    onClick={() => setActiveYear(y)}
+                                                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${activeYear === y
+                                                        ? 'bg-[var(--bg-surface-1)] text-[var(--text-primary)] border border-[var(--border-subtle)] shadow-sm'
+                                                        : 'text-[var(--text-secondary)] hover:text-blue-600 transition-colors'
+                                                        }`}
+                                                >
+                                                    {y}
+                                                </button>
+                                            ))
+                                        )}
                                     </div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-secondary)] mt-2">⚡ Annual Performance</div>
+                                    {!hideHeatmapGridOnly && (
+                                        <div className="flex items-center gap-1.5 mt-2">
+                                            <div className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-secondary)]">⚡ Annual Performance</div>
+                                            <SimpleTooltip content="Ranks your daily efficiency vs peers. Percentile = (You / (You + Peer)) * 100. Lower % is more efficient. Green = Top 10%, Red = Bottom 5%.">
+                                                <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                                            </SimpleTooltip>
+                                        </div>
+                                    )}
                                 </div>
-                            ) : viewMode === 'monthly' ? (
+                            )}
+                            {viewMode === 'monthly' && (
                                 <div className="mb-4">
                                     <div className="flex items-center gap-3 mb-2">
                                         <select
@@ -425,7 +790,7 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                             onChange={(e: any) => setActiveYear(Number(e.target.value))}
                                             className="text-xs font-medium px-3 py-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface-1)] text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300"
                                         >
-                                            {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(y => (
+                                            {[2024, 2025, 2026].map(y => (
                                                 <option key={y} value={y}>{y}</option>
                                             ))}
                                         </select>
@@ -444,33 +809,47 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-secondary)]">📅 Monthly Performance — {MNF[selectedMonth]} {activeYear}</div>
+                                    {!hideHeatmapGridOnly && (
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-secondary)]">📅 Monthly Performance — {MNF[selectedMonth]} {activeYear}</div>
+                                            <SimpleTooltip content={`Detailed daily energy usage breakdown for ${MNF[selectedMonth]} ${activeYear}.`}>
+                                                <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                                            </SimpleTooltip>
+                                        </div>
+                                    )}
                                 </div>
-                            ) : null)}
+                            )}
 
                             {/* ═══ ANNUAL VIEW ═══ */}
                             {viewMode === 'annual' && (
                                 <>
                                     {/* TEMPERATURE CHART */}
                                     <div className="mb-2" ref={chartContainerRef}>
-                                        <div className="flex items-center justify-start gap-4 mb-2">
-                                            {hideHeatmap ? (
+                                        <div className="flex items-center justify-start gap-4 mb-8">
+                                            {hideHeatmapGridOnly ? (
                                                 <div className="flex items-center justify-between w-full">
-                                                    <h3 className="text-sm font-bold text-[var(--text-primary)]">Usage History</h3>
-                                                    <div className="flex gap-3 text-[10px] text-[var(--text-primary)]">
+                                                    <h3 className="text-[12px] font-bold text-[var(--text-primary)] uppercase tracking-widest"></h3>
+                                                    <div className="flex gap-4 text-[10px] text-[var(--text-primary)]">
+                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded bg-orange-500"></div>You</div>
+                                                        {!hidePeerComparison && (
+                                                            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded bg-slate-400"></div>Avg. peer usage (similar home size & year built)</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : hideHeatmap ? (
+                                                <div className="flex items-center justify-between w-full gap-2">
+                                                    <h3 className="text-sm font-bold text-[var(--text-primary)] shrink-0">Usage History</h3>
+                                                    <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[10px] text-[var(--text-primary)]">
                                                         <div className="flex items-center gap-1.5"><div className="w-4 h-0 border-t-2 border-dashed border-red-500"></div>Plan Limit</div>
                                                         <div className="flex items-center gap-1.5"><div className="w-4 h-0 border-t-2 border-blue-500"></div>Avg Usage</div>
-                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-[#E2E8F0]"></div>2020</div>
-                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-[#CBD5E1]"></div>2021</div>
-                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-[#94A3B8]"></div>2022</div>
-                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-[#64748B]"></div>2023</div>
-                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-[#1E293B]"></div>2024</div>
+                                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-sm bg-[#EA580C]"></div>2024</div>
                                                     </div>
                                                 </div>
                                             ) : (
                                                 <div className="flex gap-3 text-[10px] text-[var(--text-primary)]">
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-1 rounded bg-blue-500"></div>Min</div>
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-1 rounded bg-orange-500"></div>Max</div>
+                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded bg-slate-400"></div>Peer</div>
                                                     <div className="flex items-center gap-1.5"><div className="w-4 h-0 border-t border-dashed border-purple-500"></div>Avg</div>
                                                 </div>
                                             )}
@@ -485,21 +864,22 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                 </defs>
                                                 {/* Usage Bars */}
                                                 {MN.map((_, m) => {
-                                                    if (!monthRects[m]) return null;
+                                                    const tcd = tempChartData;
+                                                    if (!monthRects[m] || !tcd) return null;
 
                                                     if (hideHeatmap) {
                                                         const cx = GUTTER_W + monthRects[m].mid;
                                                         const barW = 6;
                                                         const gap = 2;
-                                                        const totalW = 5 * barW + 4 * gap;
+                                                        const totalW = histYears.length * barW + (histYears.length - 1) * gap;
                                                         const startX = cx - totalW / 2;
 
                                                         return (
                                                             <React.Fragment key={`hist-${m}`}>
-                                                                {HIST_YEARS.map((y, i) => {
-                                                                    const val = HIST_MONTHLY[y as keyof typeof HIST_MONTHLY][m];
-                                                                    const barH = tempChartData.chartH - (tempChartData.yKwh(val) - tempChartData.PAD_T);
-                                                                    const barColors = ["#FFF7ED", "#FFEDD5", "#FED7AA", "#FDBA74", "#FB923C"];
+                                                                {histYears.map((y, i) => {
+                                                                    const val = histMonthly[y][m];
+                                                                    const barH = tcd.chartH - (tcd.yKwh(val) - tcd.PAD_T);
+                                                                    const barColors = ["#FED7AA", "#FDBA74", "#FB923C", "#F97316", "#EA580C"];
                                                                     const baseColor = barColors[i];
                                                                     const isHovered = hoverData?.type === 'usage-month' && hoverData.month === m;
 
@@ -507,13 +887,17 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                                         <rect
                                                                             key={`hist-${m}-${y}`}
                                                                             x={startX + i * (barW + gap)}
-                                                                            y={tempChartData.yKwh(val)}
+                                                                            y={tcd.yKwh(val)}
                                                                             width={barW}
                                                                             height={Math.max(0, barH)}
                                                                             fill={baseColor}
                                                                             rx={2}
                                                                             opacity={hoverData?.type === 'usage-month' ? (isHovered ? 1 : 0.5) : 1}
-                                                                            style={{ transition: 'all 0.2s' }}
+                                                                            style={{ transition: 'all 0.2s', cursor: 'pointer' }}
+                                                                            onClick={() => {
+                                                                                setActiveYear(y);
+                                                                                setSelectedMonthPerfDetail({ month: m, year: y });
+                                                                            }}
                                                                         />
                                                                     );
                                                                 })}
@@ -521,7 +905,7 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                                     x={startX - gap}
                                                                     y={0}
                                                                     width={totalW + gap * 2}
-                                                                    height={tempChartData.H}
+                                                                    height={tcd.H}
                                                                     fill="transparent"
                                                                     onMouseEnter={(e) => {
                                                                         setTooltipPos({ x: e.clientX, y: e.clientY });
@@ -535,32 +919,115 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                                 />
                                                             </React.Fragment>
                                                         );
+                                                    } else if (hideHeatmapGridOnly) {
+                                                        const stat = monthStats[m];
+                                                        const barH = tcd.chartH - (tcd.yKwh(stat.myKwh) - tcd.PAD_T);
+                                                        // Get the peer average across all years for this month as a mock approximation
+                                                        const peerAvgKwh = stat.predictedKwh || (stat.myKwh * 0.85);
+                                                        const peerH = tcd.chartH - (tcd.yKwh(peerAvgKwh) - tcd.PAD_T);
+
+                                                        const barW = 16;
+                                                        const gap = 2;
+                                                        const startX = GUTTER_W + monthRects[m].mid - (barW * 2 + gap) / 2;
+
+                                                        return (
+                                                            <React.Fragment key={`usage-${m}`}>
+                                                                <rect
+                                                                    x={startX}
+                                                                    y={tcd.yKwh(stat.myKwh)}
+                                                                    width={barW}
+                                                                    height={Math.max(0, barH)}
+                                                                    fill={hoverData?.type === 'usage-bar' && hoverData.month === m ? "#EA580C" : "#F97316"}
+                                                                    opacity={1}
+                                                                    rx={4}
+                                                                    style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                                                                    onClick={() => {
+                                                                        setSelectedMonthPerfDetail({ month: m, year: activeYear });
+                                                                    }}
+                                                                >
+                                                                    <title>You: {stat.myKwh} kWh</title>
+                                                                </rect>
+                                                                {!hidePeerComparison && (
+                                                                    <rect
+                                                                        x={startX + barW + gap}
+                                                                        y={tcd.yKwh(peerAvgKwh)}
+                                                                        width={barW}
+                                                                        height={Math.max(0, peerH)}
+                                                                        fill="#94A3B8"
+                                                                        opacity={0.8}
+                                                                        rx={4}
+                                                                        style={{ transition: 'all 0.2s' }}
+                                                                        onClick={() => {
+                                                                            setSelectedMonthPerfDetail({ month: m, year: activeYear });
+                                                                        }}
+                                                                    >
+                                                                        <title>Peer Avg: {peerAvgKwh.toFixed(0)} kWh</title>
+                                                                    </rect>
+                                                                )}
+                                                            </React.Fragment>
+                                                        );
                                                     } else {
                                                         const stat = monthStats[m];
-                                                        const barH = tempChartData.chartH - (tempChartData.yKwh(stat.myKwh) - tempChartData.PAD_T);
-                                                        const x = GUTTER_W + monthRects[m].mid - 12;
+                                                        const barH = tcd.chartH - (tcd.yKwh(stat.myKwh) - tcd.PAD_T);
+                                                        const peerAvgKwh = stat.predictedKwh || (stat.myKwh * 0.85);
+                                                        const peerH = tcd.chartH - (tcd.yKwh(peerAvgKwh) - tcd.PAD_T);
+
+                                                        const barW = 12;
+                                                        const gap = 2;
+                                                        const startX = GUTTER_W + monthRects[m].mid - (barW * 2 + gap) / 2;
+
                                                         return (
-                                                            <rect
-                                                                key={`usage-${m}`}
-                                                                x={x}
-                                                                y={tempChartData.yKwh(stat.myKwh)}
-                                                                width={24}
-                                                                height={barH}
-                                                                fill={hoverData?.type === 'usage-bar' && hoverData.month === m ? "#EA580C" : "#F97316"}
-                                                                opacity={hoverData?.type === 'usage-bar' && hoverData.month === m ? 1 : 0.8}
-                                                                rx={4}
-                                                                onMouseEnter={(e) => {
-                                                                    setTooltipPos({ x: e.clientX, y: e.clientY });
-                                                                    setHoverData({
-                                                                        type: 'usage-bar',
-                                                                        month: m,
-                                                                        kwh: stat.myKwh,
-                                                                        cost: (stat.myKwh * 0.12).toFixed(2)
-                                                                    });
-                                                                }}
-                                                                onMouseLeave={() => setHoverData(null)}
-                                                                style={{ cursor: 'pointer', transition: 'all 0.2s' }}
-                                                            />
+                                                            <React.Fragment key={`usage-${m}`}>
+                                                                <rect
+                                                                    x={startX}
+                                                                    y={tcd.yKwh(stat.myKwh)}
+                                                                    width={barW}
+                                                                    height={Math.max(0, barH)}
+                                                                    fill={hoverData?.type === 'usage-bar' && hoverData.month === m ? "#EA580C" : "#F97316"}
+                                                                    opacity={1}
+                                                                    rx={3}
+                                                                    onMouseEnter={(e) => {
+                                                                        setTooltipPos({ x: e.clientX, y: e.clientY });
+                                                                        setHoverData({
+                                                                            type: 'usage-bar',
+                                                                            month: m,
+                                                                            kwh: stat.myKwh,
+                                                                            cost: stat.cost !== null ? stat.cost.toFixed(2) : '--',
+                                                                            label: stat.label,
+                                                                            isCurrent: stat.isCurrent
+                                                                        });
+                                                                    }}
+                                                                    onMouseLeave={() => setHoverData(null)}
+                                                                    style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                                                                    onClick={() => {
+                                                                        setSelectedMonthPerfDetail({ month: m, year: activeYear });
+                                                                    }}
+                                                                />
+                                                                <rect
+                                                                    x={startX + barW + gap}
+                                                                    y={tcd.yKwh(peerAvgKwh)}
+                                                                    width={barW}
+                                                                    height={Math.max(0, peerH)}
+                                                                    fill="#94A3B8"
+                                                                    opacity={0.8}
+                                                                    rx={3}
+                                                                    onMouseEnter={(e) => {
+                                                                        setTooltipPos({ x: e.clientX, y: e.clientY });
+                                                                        setHoverData({
+                                                                            type: 'usage-bar',
+                                                                            month: m,
+                                                                            name: 'Peer Avg',
+                                                                            kwh: peerAvgKwh,
+                                                                            cost: null
+                                                                        });
+                                                                    }}
+                                                                    onMouseLeave={() => setHoverData(null)}
+                                                                    style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                                                                    onClick={() => {
+                                                                        setSelectedMonthPerfDetail({ month: m, year: activeYear });
+                                                                    }}
+                                                                />
+                                                            </React.Fragment>
                                                         );
                                                     }
                                                 })}
@@ -570,18 +1037,18 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                     <>
                                                         <polyline
                                                             points={MN.map((_, m) => {
-                                                                if (!monthRects[m]) return '';
-                                                                const usages = HIST_YEARS.map(y => HIST_MONTHLY[y as keyof typeof HIST_MONTHLY][m]);
-                                                                const avg = usages.reduce((a, b) => a + b, 0) / usages.length;
+                                                                if (!monthRects[m] || !tempChartData) return '';
+                                                                const usages = histYears.map(y => (histMonthly[y] ? histMonthly[y][m] : 0));
+                                                                const avg = usages.reduce((a, b) => a + b, 0) / (usages.length || 1);
                                                                 return `${GUTTER_W + monthRects[m].mid},${tempChartData.yKwh(avg)}`;
                                                             }).filter(Boolean).join(' ')}
                                                             fill="none" stroke="#2563EB" strokeWidth="2"
                                                         />
                                                         {MN.map((_, m) => {
-                                                            if (!monthRects[m]) return null;
+                                                            if (!monthRects[m] || !tempChartData) return null;
                                                             const cx = GUTTER_W + monthRects[m].mid;
-                                                            const usages = HIST_YEARS.map(y => HIST_MONTHLY[y as keyof typeof HIST_MONTHLY][m]);
-                                                            const avg = usages.reduce((a, b) => a + b, 0) / usages.length;
+                                                            const usages = histYears.map(y => (histMonthly[y] ? histMonthly[y][m] : 0));
+                                                            const avg = usages.reduce((a, b) => a + b, 0) / (usages.length || 1);
                                                             const cy = tempChartData.yKwh(avg);
                                                             return (
                                                                 <g key={`avg-dot-${m}`}>
@@ -599,13 +1066,13 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                     return (
                                                         <React.Fragment key={`kwh-${v}`}>
                                                             <line x1={GUTTER_W} y1={y} x2={GUTTER_W + (monthRects[11]?.right || 0)} y2={y} stroke={gridColor} strokeWidth="0.5" strokeDasharray="2,2" opacity={0.3} />
-                                                            <text x={GUTTER_W - 8} y={y + 3} fontSize="9" fill={axisColor} textAnchor="end" fontWeight="600">{v}k</text>
+                                                            <text x={GUTTER_W - 8} y={y + 3} fontSize="9" fill={axisColor} textAnchor="end" fontWeight="600">{v}</text>
                                                         </React.Fragment>
                                                     );
                                                 })}
 
                                                 {/* Temperature grid & Fahrenheit labels (Right Axis) */}
-                                                {hideHeatmap ? null : [0, 10, 20, 30].map(t => {
+                                                {!hideHeatmap && [0, 10, 20, 30].map(t => {
                                                     const y = tempChartData.yS(t);
                                                     const f = Math.round(t * 9 / 5 + 32);
                                                     const chartRight = GUTTER_W + (monthRects[11]?.right || 0);
@@ -617,13 +1084,13 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                     );
                                                 })}
                                                 {MN.map((_, m) => {
-                                                    if (!monthRects[m]) return null;
+                                                    if (!monthRects[m] || !tempChartData) return null;
                                                     const x = GUTTER_W + monthRects[m].left;
                                                     return <line key={m} x1={x} y1={0} x2={x} y2={tempChartData.H} stroke={gridColor} strokeWidth="1" strokeDasharray="2,2" />;
                                                 })}
-                                                {hideHeatmap ? null : (() => {
+                                                {!hideHeatmap && !hideHeatmapGridOnly && (() => {
                                                     const tempPoints = MN.map((_, m) => {
-                                                        if (!monthRects[m]) return null;
+                                                        if (!monthRects[m] || !tempChartData) return null;
                                                         const mData = yearData[m];
                                                         const maxT = Math.max(...mData.map((d: any) => d.tempMax));
                                                         const minT = Math.min(...mData.map((d: any) => d.tempMin));
@@ -642,10 +1109,10 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                     );
                                                 })()}
                                                 {MN.map((_, m) => {
-                                                    if (!monthRects[m]) return null;
+                                                    if (!monthRects[m] || !tempChartData) return null;
                                                     const cx = GUTTER_W + monthRects[m].mid;
 
-                                                    if (hideHeatmap) {
+                                                    if (hideHeatmap || hideHeatmapGridOnly) {
                                                         return <text key={m} x={cx} y={tempChartData.H - 4} fontSize="10" fill={axisColor} textAnchor="middle" className="opacity-50">{MN[m]}</text>;
                                                     }
 
@@ -682,7 +1149,7 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                     </div>
 
                                     {/* HEATMAP GRID */}
-                                    {!hideHeatmap && (
+                                    {(!hideHeatmap && !hideHeatmapGridOnly) && (
                                         <div className="flex items-start gap-0 mt-4">
                                             <div style={{ width: GUTTER_W }} className="flex flex-col items-center justify-center gap-0 pr-4 border-r border-[var(--border-subtle)] shrink-0 py-2">
                                                 <span className="text-[8px] text-emerald-600 font-bold mb-1">Best</span>
@@ -710,10 +1177,43 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                                                         const today = new Date();
                                                                         const isFuture = activeYear === today.getFullYear() && (m > today.getMonth() || (m === today.getMonth() && (di + 1) > today.getDate()));
                                                                         if (isFuture) return <div key={i} className="day-cell future" />;
+
+                                                                        // Filtering logic
+                                                                        let isFiltered = true;
+                                                                        if (useWeatherTabs) {
+                                                                            if (activeFilter === 'Hot Days') {
+                                                                                isFiltered = day.tempMax > 85;
+                                                                            } else if (activeFilter === 'Cool Days') {
+                                                                                isFiltered = day.tempMin < 45;
+                                                                            } else if (activeFilter === 'Humid') {
+                                                                                // Mock humidity check - higher chance in summer
+                                                                                const seed = (activeYear * 1000) + (m * 50) + di;
+                                                                                const seededRand = (s: number) => {
+                                                                                    let x = Math.sin(s++) * 10000;
+                                                                                    return () => x - Math.floor(x);
+                                                                                };
+                                                                                const rand = seededRand(seed)();
+                                                                                isFiltered = (m >= 5 && m <= 8) ? rand > 0.3 : rand > 0.8;
+                                                                            } else if (activeFilter === 'None') {
+                                                                                isFiltered = true;
+                                                                            }
+                                                                        }
+
                                                                         return (
-                                                                            <div key={i} className={`day-cell ${getCC(day.pct)}`}
+                                                                            <div key={i}
+                                                                                className={`day-cell ${getCC(day.pct)} ${!isFiltered ? 'opacity-20 grayscale-[0.5]' : 'scale-110 shadow-sm'}`}
                                                                                 onMouseEnter={() => { setActiveMonth(m); setHoverData({ type: 'day', ...day }); }}
-                                                                                onMouseLeave={() => { setActiveMonth(-1); setHoverData(null); }} />
+                                                                                onMouseLeave={() => { setActiveMonth(-1); setHoverData(null); }}
+                                                                                onClick={() => {
+                                                                                    setSelectedDayDetail({
+                                                                                        ...day,
+                                                                                        label: `${day.d} ${MNF[day.m]}`,
+                                                                                        my: day.kwh,
+                                                                                        peer: day.avg
+                                                                                    });
+                                                                                }}
+                                                                                style={{ transform: isFiltered ? 'scale(1.1)' : 'scale(1)' }}
+                                                                            />
                                                                         );
                                                                     })}
                                                                 </div>
@@ -728,109 +1228,17 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
 
                                     {/* CONDITIONAL CHART SECTION */}
                                     <div className="mt-8">
-                                        {isMyUsagePage ? (
-                                            /* PEER COMPARISON & REDUCED SIZE CHART (PEAK PATTERNS) */
-                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                {/* Daily Peak Hours Pattern Chart */}
-                                                <div className="col-span-1 flex flex-col">
-                                                    <div className="mb-2 pl-1">
-                                                        <h3 className="text-[12px] font-bold text-[var(--text-primary)] uppercase tracking-widest">📊 Daily Peak Hours Pattern</h3>
-                                                        <p className="text-[12px] text-[var(--text-primary)] font-medium mt-0.5 opacity-80">Avg kWh per hour slot across the year</p>
-                                                    </div>
-                                                    <div className="flex-1 flex flex-col items-center justify-center bg-slate-50/50 rounded-lg p-3 border border-[var(--border-subtle)] min-h-[220px]">
-                                                        {(() => {
-                                                            const maxHr = Math.max(...hourAvgs) * 1.15;
-                                                            const H = 180, W = 400;
-                                                            const PAD = { l: 30, r: 10, t: 10, b: 30 };
-                                                            const cH = H - PAD.t - PAD.b, cW = W - PAD.l - PAD.r;
-                                                            const yS = (v: number) => PAD.t + cH - (v / maxHr) * cH;
-                                                            const xS = (h: number) => PAD.l + ((h + 0.5) / 24) * cW;
-                                                            const bW = (cW / 24) * 0.7;
-
-                                                            return (
-                                                                <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full overflow-visible">
-                                                                    {[0, Math.round(maxHr / 2), Math.round(maxHr)].map(v => (
-                                                                        <React.Fragment key={v}>
-                                                                            <line x1={PAD.l} y1={yS(v)} x2={PAD.l + cW} y2={yS(v)} stroke="#E5E7EB" strokeWidth="1" strokeDasharray="3,4" />
-                                                                            <text x={PAD.l - 5} y={yS(v) + 3} fontSize="9" fill="var(--text-secondary)" textAnchor="end">{v} kWh</text>
-                                                                        </React.Fragment>
-                                                                    ))}
-                                                                    {hourAvgs.map((val, h) => {
-                                                                        const isPk = PEAK_HOURS.has(h);
-                                                                        return (
-                                                                            <g key={h}
-                                                                                onMouseEnter={(e) => {
-                                                                                    setHoverData({ type: 'peak-hour', hour: h, val, isPk });
-                                                                                    setTooltipPos({ x: e.clientX, y: e.clientY });
-                                                                                }}
-                                                                                onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
-                                                                                onMouseLeave={() => setHoverData(null)}
-                                                                            >
-                                                                                <rect x={xS(h) - bW / 2} y={yS(val)} width={bW} height={Math.max(2, cH - (yS(val) - PAD.t))}
-                                                                                    fill={isPk ? '#ea580c' : '#3b82f6'} rx={2} opacity={0.8} />
-                                                                                {h % 4 === 0 && <text x={xS(h)} y={H - 5} fontSize="9" fill="var(--text-secondary)" textAnchor="middle">{h}:00</text>}
-                                                                            </g>
-                                                                        );
-                                                                    })}
-                                                                </svg>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-
-                                                {/* Weekly Peak Days Pattern Chart */}
-                                                <div className="col-span-1 border-t lg:border-t-0 lg:border-l border-[var(--border-subtle)] pt-4 lg:pt-0 lg:pl-6 flex flex-col">
-                                                    <div className="mb-2 pl-1">
-                                                        <h3 className="text-[12px] font-bold text-[var(--text-primary)] uppercase tracking-widest">📊 Weekly Peak Days Pattern</h3>
-                                                        <p className="text-[12px] text-[var(--text-primary)] font-medium mt-0.5 opacity-80">Avg kWh per day across the week</p>
-                                                    </div>
-                                                    <div className="flex-1 flex flex-col items-center justify-center bg-slate-50/50 rounded-lg p-3 border border-[var(--border-subtle)] min-h-[220px]">
-                                                        {(() => {
-                                                            const maxD = Math.max(...dowAvgs) * 1.15;
-                                                            const H = 180, W = 400;
-                                                            const PAD = { l: 30, r: 10, t: 10, b: 30 };
-                                                            const cH = H - PAD.t - PAD.b, cW = W - PAD.l - PAD.r;
-                                                            const yS = (v: number) => PAD.t + cH - (v / maxD) * cH;
-                                                            const xS = (d: number) => PAD.l + ((d + 0.5) / 7) * cW;
-                                                            const bW = (cW / 7) * 0.7;
-
-                                                            return (
-                                                                <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full overflow-visible">
-                                                                    {[0, Math.round(maxD / 2), Math.round(maxD)].map(v => (
-                                                                        <React.Fragment key={v}>
-                                                                            <line x1={PAD.l} y1={yS(v)} x2={PAD.l + cW} y2={yS(v)} stroke="#E5E7EB" strokeWidth="1" strokeDasharray="3,4" />
-                                                                            <text x={PAD.l - 5} y={yS(v) + 3} fontSize="9" fill="var(--text-secondary)" textAnchor="end">{v} kWh</text>
-                                                                        </React.Fragment>
-                                                                    ))}
-                                                                    {dowAvgs.map((val, d) => {
-                                                                        const isWeekend = WEEKEND_DAYS.has(d);
-                                                                        return (
-                                                                            <g key={d}
-                                                                                onMouseEnter={(e) => {
-                                                                                    setHoverData({ type: 'peak-day', day: d, val, isWeekend });
-                                                                                    setTooltipPos({ x: e.clientX, y: e.clientY });
-                                                                                }}
-                                                                                onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
-                                                                                onMouseLeave={() => setHoverData(null)}
-                                                                            >
-                                                                                <rect x={xS(d) - bW / 2} y={yS(val)} width={bW} height={Math.max(2, cH - (yS(val) - PAD.t))}
-                                                                                    fill={isWeekend ? '#ea580c' : '#3b82f6'} rx={2} opacity={0.8} />
-                                                                                <text x={xS(d)} y={H - 5} fontSize="9" fill="var(--text-secondary)" textAnchor="middle">{DOW_NAMES[d]}</text>
-                                                                            </g>
-                                                                        );
-                                                                    })}
-                                                                </svg>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : (
+                                        {(isMyUsagePage || hidePeerComparison) ? null : (
                                             /* YEARLY PEER COMPARISON CHART */
                                             <div className="flex items-start gap-0">
                                                 <div style={{ width: GUTTER_W }} className="flex flex-col items-center justify-start pr-4 pt-10 shrink-0" />
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-4">📊 Yearly Peer Comparison</div>
+                                                    <div className="flex items-center gap-1.5 mb-4">
+                                                        <div className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-widest">📊 Yearly Peer Comparison</div>
+                                                        <SimpleTooltip content="Compares your annual energy usage directly against similar homes in your area.">
+                                                            <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                                                        </SimpleTooltip>
+                                                    </div>
 
                                                     {monthRects.length >= 12 && (() => {
                                                         const allV = monthStats.flatMap(ms => [ms.myKwh, ms.highestKwh, ms.lowestKwh, ms.predictedKwh]);
@@ -977,7 +1385,12 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                                             <div style={{ width: GUTTER_W }} className="flex flex-col items-center justify-start pr-4 pt-10 shrink-0" />
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center justify-between mb-4">
-                                                    <div className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-widest">📊 Daily Consumption Split</div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-widest">📊 Daily Consumption Split</div>
+                                                        <SimpleTooltip content="Shows how your daily energy use is distributed across different time blocks.">
+                                                            <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                                                        </SimpleTooltip>
+                                                    </div>
                                                     <div className="flex items-center gap-4">
                                                         <div className="flex items-center gap-1.5 text-[10px] font-medium">
                                                             <div className="w-3 h-3 rounded-sm bg-[#facc15]" />
@@ -1080,161 +1493,206 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
 
                                     {/* DAILY PEER COMPARISON CHART */}
                                     <div className="mt-8">
-                                        <div className="flex items-start gap-0">
-                                            <div style={{ width: GUTTER_W }} className="flex flex-col items-center justify-start pr-4 pt-10 shrink-0" />
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-widest mb-4">📊 Daily Peer Comparison — {MNF[selectedMonth]}</div>
-                                                <div className="flex flex-wrap items-center justify-start gap-x-4 gap-y-1 mb-3">
-                                                    <div className="flex items-center gap-1.5 text-[10px]"><div className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">Highest</span></div>
-                                                    <div className="flex items-center gap-1.5 text-[10px]"><div className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">You</span></div>
-                                                    <div className="flex items-center gap-1.5 text-[10px]"><div className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">Lowest</span></div>
-                                                    <div className="flex items-center gap-1.5 text-[10px]"><div className="w-4 h-0.5 rounded bg-purple-500 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">Predicted</span></div>
+                                        {hidePeerComparison ? null : (
+                                            <div className="flex items-start gap-0">
+                                                <div style={{ width: GUTTER_W }} className="flex flex-col items-center justify-start pr-4 pt-10 shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-1.5 mb-4">
+                                                        <div className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-widest">📊 Daily Peer Comparison — {MNF[selectedMonth]}</div>
+                                                        <SimpleTooltip content={`Comparing your daily consumption against peers throughout ${MNF[selectedMonth]}.`}>
+                                                            <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                                                        </SimpleTooltip>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center justify-start gap-x-4 gap-y-1 mb-3">
+                                                        <div className="flex items-center gap-1.5 text-[10px]"><div className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">Highest</span></div>
+                                                        <div className="flex items-center gap-1.5 text-[10px]"><div className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">You</span></div>
+                                                        <div className="flex items-center gap-1.5 text-[10px]"><div className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">Lowest</span></div>
+                                                        <div className="flex items-center gap-1.5 text-[10px]"><div className="w-4 h-0.5 rounded bg-purple-500 shrink-0"></div><span className="text-[var(--text-primary)] font-medium">Predicted</span></div>
+                                                    </div>
+                                                    {(() => {
+                                                        const dStats = dayPeerStats[selectedMonth];
+                                                        const daysCount = DIM[selectedMonth];
+                                                        const allV = dStats.flatMap(ds => [ds.myKwh, ds.highestKwh, ds.lowestKwh, ds.predictedKwh]);
+                                                        const gMax = Math.max(...allV) * 1.05;
+                                                        const PAD_T = 10, PAD_B = 25;
+                                                        const H = 180;
+                                                        const chartH = H - PAD_T - PAD_B;
+                                                        const yS = (v: number) => PAD_T + chartH - (v / gMax) * chartH;
+                                                        const cW = cardRef.current?.clientWidth || 700;
+                                                        const usable = cW - GUTTER_W;
+                                                        const getX = (di: number) => (di / (daysCount - 1)) * usable;
+
+                                                        const highL = dStats.map((ds, i) => `${getX(i)},${yS(ds.highestKwh)}`).join(' ');
+                                                        const youL = dStats.map((ds, i) => `${getX(i)},${yS(ds.myKwh)}`).join(' ');
+                                                        const lowL = dStats.map((ds, i) => `${getX(i)},${yS(ds.lowestKwh)}`).join(' ');
+                                                        const predL = dStats.map((ds, i) => `${getX(i)},${yS(ds.predictedKwh)}`).join(' ');
+
+                                                        return (
+                                                            <svg width="100%" height={H} className="overflow-visible">
+                                                                {[0, Math.round(gMax / 2), Math.round(gMax)].map((v: number) => {
+                                                                    const y = yS(v);
+                                                                    return (
+                                                                        <React.Fragment key={v}>
+                                                                            <line x1={0} y1={y} x2={usable} y2={y} stroke={gridColor} strokeWidth="1" strokeDasharray="3,4" />
+                                                                            <text x={-8} y={y + 3} fontSize="9" fill={axisColor} textAnchor="end">{v} kWh</text>
+                                                                        </React.Fragment>
+                                                                    );
+                                                                })}
+                                                                <polyline points={highL} fill="none" stroke="#DC2626" strokeWidth={1.5} opacity={0.4} />
+                                                                <polyline points={youL} fill="none" stroke="#2563EB" strokeWidth={1.5} opacity={0.4} />
+                                                                <polyline points={lowL} fill="none" stroke="#16A34A" strokeWidth={1.5} opacity={0.4} />
+                                                                <polyline points={predL} fill="none" stroke="#8B5CF6" strokeWidth={1} strokeDasharray="4,2" opacity={0.3} />
+
+                                                                {dStats.map((ds: any, di: number) => {
+                                                                    const x = getX(di);
+                                                                    const today = new Date();
+                                                                    const isFuture = activeYear === today.getFullYear() && (selectedMonth > today.getMonth() || (selectedMonth === today.getMonth() && (di + 1) > today.getDate()));
+                                                                    return (
+                                                                        <React.Fragment key={di}>
+                                                                            {!isFuture && (
+                                                                                <>
+                                                                                    <circle cx={x} cy={yS(ds.highestKwh)} r={2} fill="#DC2626"
+                                                                                        onMouseEnter={() => setHoverData({ type: 'nbr-single', month: selectedMonth, role: 'highest', kwh: ds.highestKwh, nbr: neighbours[ds.highestNi], allMax: ds.highestKwh })}
+                                                                                        onMouseLeave={() => setHoverData(null)} style={{ cursor: 'pointer' }} />
+                                                                                    <circle cx={x} cy={yS(ds.myKwh)} r={2.5} fill="#2563EB"
+                                                                                        onMouseEnter={() => setHoverData({ type: 'day', ...yearData[selectedMonth][di] })}
+                                                                                        onMouseLeave={() => setHoverData(null)} style={{ cursor: 'pointer' }} />
+                                                                                    <circle cx={x} cy={yS(ds.lowestKwh)} r={2} fill="#16A34A"
+                                                                                        onMouseEnter={() => setHoverData({ type: 'nbr-single', month: selectedMonth, role: 'lowest', kwh: ds.lowestKwh, nbr: neighbours[ds.lowestNi], allMax: ds.highestKwh })}
+                                                                                        onMouseLeave={() => setHoverData(null)} style={{ cursor: 'pointer' }} />
+                                                                                </>
+                                                                            )}
+                                                                            <circle cx={x} cy={yS(ds.predictedKwh)} r={1.5} fill="#8B5CF6" opacity={0.6} />
+                                                                            {(di === 0 || (di + 1) % 5 === 0 || di === daysCount - 1) && (
+                                                                                <text x={x} y={H - 5} fontSize="9" fill={axisColor} textAnchor="middle">{di + 1}</text>
+                                                                            )}
+                                                                        </React.Fragment>
+                                                                    );
+                                                                })}
+                                                            </svg>
+                                                        );
+                                                    })()}
                                                 </div>
-                                                {(() => {
-                                                    const dStats = dayPeerStats[selectedMonth];
-                                                    const daysCount = DIM[selectedMonth];
-                                                    const allV = dStats.flatMap(ds => [ds.myKwh, ds.highestKwh, ds.lowestKwh, ds.predictedKwh]);
-                                                    const gMax = Math.max(...allV) * 1.05;
-                                                    const PAD_T = 10, PAD_B = 25;
-                                                    const H = 180;
-                                                    const chartH = H - PAD_T - PAD_B;
-                                                    const yS = (v: number) => PAD_T + chartH - (v / gMax) * chartH;
-                                                    const cW = cardRef.current?.clientWidth || 700;
-                                                    const usable = cW - GUTTER_W;
-                                                    const getX = (di: number) => (di / (daysCount - 1)) * usable;
-
-                                                    const highL = dStats.map((ds, i) => `${getX(i)},${yS(ds.highestKwh)}`).join(' ');
-                                                    const youL = dStats.map((ds, i) => `${getX(i)},${yS(ds.myKwh)}`).join(' ');
-                                                    const lowL = dStats.map((ds, i) => `${getX(i)},${yS(ds.lowestKwh)}`).join(' ');
-                                                    const predL = dStats.map((ds, i) => `${getX(i)},${yS(ds.predictedKwh)}`).join(' ');
-
-                                                    return (
-                                                        <svg width="100%" height={H} className="overflow-visible">
-                                                            {[0, Math.round(gMax / 2), Math.round(gMax)].map((v: number) => {
-                                                                const y = yS(v);
-                                                                return (
-                                                                    <React.Fragment key={v}>
-                                                                        <line x1={0} y1={y} x2={usable} y2={y} stroke={gridColor} strokeWidth="1" strokeDasharray="3,4" />
-                                                                        <text x={-8} y={y + 3} fontSize="9" fill={axisColor} textAnchor="end">{v} kWh</text>
-                                                                    </React.Fragment>
-                                                                );
-                                                            })}
-                                                            <polyline points={highL} fill="none" stroke="#DC2626" strokeWidth={1.5} opacity={0.4} />
-                                                            <polyline points={youL} fill="none" stroke="#2563EB" strokeWidth={1.5} opacity={0.4} />
-                                                            <polyline points={lowL} fill="none" stroke="#16A34A" strokeWidth={1.5} opacity={0.4} />
-                                                            <polyline points={predL} fill="none" stroke="#8B5CF6" strokeWidth={1} strokeDasharray="4,2" opacity={0.3} />
-
-                                                            {dStats.map((ds: any, di: number) => {
-                                                                const x = getX(di);
-                                                                const today = new Date();
-                                                                const isFuture = activeYear === today.getFullYear() && (selectedMonth > today.getMonth() || (selectedMonth === today.getMonth() && (di + 1) > today.getDate()));
-                                                                return (
-                                                                    <React.Fragment key={di}>
-                                                                        {!isFuture && (
-                                                                            <>
-                                                                                <circle cx={x} cy={yS(ds.highestKwh)} r={2} fill="#DC2626"
-                                                                                    onMouseEnter={() => setHoverData({ type: 'nbr-single', month: selectedMonth, role: 'highest', kwh: ds.highestKwh, nbr: neighbours[ds.highestNi], allMax: ds.highestKwh })}
-                                                                                    onMouseLeave={() => setHoverData(null)} style={{ cursor: 'pointer' }} />
-                                                                                <circle cx={x} cy={yS(ds.myKwh)} r={2.5} fill="#2563EB"
-                                                                                    onMouseEnter={() => setHoverData({ type: 'day', ...yearData[selectedMonth][di] })}
-                                                                                    onMouseLeave={() => setHoverData(null)} style={{ cursor: 'pointer' }} />
-                                                                                <circle cx={x} cy={yS(ds.lowestKwh)} r={2} fill="#16A34A"
-                                                                                    onMouseEnter={() => setHoverData({ type: 'nbr-single', month: selectedMonth, role: 'lowest', kwh: ds.lowestKwh, nbr: neighbours[ds.lowestNi], allMax: ds.highestKwh })}
-                                                                                    onMouseLeave={() => setHoverData(null)} style={{ cursor: 'pointer' }} />
-                                                                            </>
-                                                                        )}
-                                                                        <circle cx={x} cy={yS(ds.predictedKwh)} r={1.5} fill="#8B5CF6" opacity={0.6} />
-                                                                        {(di === 0 || (di + 1) % 5 === 0 || di === daysCount - 1) && (
-                                                                            <text x={x} y={H - 5} fontSize="9" fill={axisColor} textAnchor="middle">{di + 1}</text>
-                                                                        )}
-                                                                    </React.Fragment>
-                                                                );
-                                                            })}
-                                                        </svg>
-                                                    );
-                                                })()}
                                             </div>
-                                        </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
                         </div>
 
                         {/* INSIGHTS Sidebar */}
-                        <div className="w-full lg:w-[432px] shrink-0 border-l border-[var(--border-subtle)] pl-6 space-y-6">
-                            <div className="flex bg-slate-100 rounded-lg p-0.5 w-full mb-4">
-                                <button
-                                    onClick={() => setSidebarTab('insights')}
-                                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${sidebarTab === 'insights'
-                                        ? 'bg-white text-[var(--text-primary)] shadow-sm'
-                                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/50'
-                                        }`}
-                                >
-                                    Insights
-                                </button>
-                                <button
-                                    onClick={() => setSidebarTab('chat')}
-                                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${sidebarTab === 'chat'
-                                        ? 'bg-white text-[var(--text-primary)] shadow-sm'
-                                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/50'
-                                        }`}
-                                >
-                                    Chat
-                                </button>
-                            </div>
-
-                            {sidebarTab === 'insights' ? (
-                                <div className="space-y-3 pt-1 overflow-y-auto max-h-[700px] pr-2 custom-scrollbar">
-                                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--border-subtle)]">
-                                        <div className="text-[10px] text-[var(--text-secondary)] font-bold tracking-wider uppercase">Audio Overview</div>
-                                        <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all border border-blue-700" title="Listen to all insights">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M8 5v14l11-7z" />
-                                            </svg>
-                                            <span className="text-xs font-bold">Listen</span>
-                                        </button>
-                                    </div>
-
-                                    {insightsData.slice(0, 3).map((insight, idx) => (
-                                        <div key={idx} className="bg-transparent pb-4 border-b border-[var(--border-subtle)] last:border-0 last:pb-0">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div className="text-[10px] text-[var(--text-secondary)] font-bold tracking-wider uppercase">{insight.time}</div>
-                                            </div>
-                                            <p className="text-xs leading-relaxed text-[var(--text-primary)] mb-2">
-                                                {insight.text}
-                                            </p>
-                                            <a href="#" className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline">
-                                                View detail
-                                            </a>
-                                        </div>
-                                    ))}
+                        {!hideSidebar && (
+                            <div className="w-full lg:w-[320px] shrink-0 border-l border-[var(--border-subtle)] pl-4 space-y-6">
+                                <div className="flex bg-slate-100 rounded-lg p-0.5 w-full mb-4">
+                                    <button
+                                        onClick={() => setSidebarTab('insights')}
+                                        className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${sidebarTab === 'insights'
+                                            ? 'bg-white text-[var(--text-primary)] shadow-sm'
+                                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/50'
+                                            }`}
+                                    >
+                                        Insights
+                                    </button>
+                                    <button
+                                        onClick={() => setSidebarTab('chat')}
+                                        className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${sidebarTab === 'chat'
+                                            ? 'bg-white text-[var(--text-primary)] shadow-sm'
+                                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/50'
+                                            }`}
+                                    >
+                                        Chat
+                                    </button>
                                 </div>
-                            ) : (
-                                <div className="flex flex-col h-[700px]">
-                                    <div className="flex-1 overflow-y-auto">
-                                        <div className="flex flex-col items-center justify-center py-12 text-center h-full">
-                                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">
-                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
-                                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+
+                                {sidebarTab === 'insights' ? (
+                                    <div className="space-y-3 pt-1 overflow-y-auto max-h-[700px] pr-2 custom-scrollbar">
+                                        <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--border-subtle)]">
+                                            <div className="text-[10px] text-[var(--text-secondary)] font-bold tracking-wider uppercase">Audio Overview</div>
+                                            <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all border border-blue-700" title="Listen to all insights">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M8 5v14l11-7z" />
                                                 </svg>
+                                                <span className="text-xs font-bold">Listen</span>
+                                            </button>
+                                        </div>
+
+                                        {(() => {
+                                            const insightsToDisplay = (externalInsights !== undefined && externalInsights !== null) ? externalInsights : (insightsData.slice(0, 3) || []);
+
+                                            if (insightsToDisplay.length === 0) {
+                                                return (
+                                                    <div className="flex flex-col items-center justify-center py-12 text-center h-full opacity-60">
+                                                        <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center mb-3">
+                                                            <SparkleRegular fontSize={18} className="text-slate-300" />
+                                                        </div>
+                                                        <p className="text-xs font-medium text-[var(--text-secondary)]">No insights available for this period</p>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return insightsToDisplay.map((insight, idx) => (
+                                                <div key={idx} className="bg-transparent pb-4 border-b border-[var(--border-subtle)] last:border-0 last:pb-0">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <div className="text-[10px] text-[var(--text-secondary)] font-bold tracking-wider uppercase">{insight.time || 'insight'}</div>
+                                                    </div>
+                                                    <p className="text-xs leading-relaxed text-[var(--text-primary)] mb-2">
+                                                        {insight.message || insight.text || insight.description}
+                                                    </p>
+                                                    <a href="#" className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline">
+                                                        View detail
+                                                    </a>
+                                                </div>
+                                            ));
+                                        })()}
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col h-[700px]">
+                                        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-4 pt-1" ref={chatScrollRef}>
+                                            {chatMessages.map((m, i) => (
+                                                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                                    <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${m.role === 'user'
+                                                        ? 'bg-blue-600 text-white rounded-br-sm'
+                                                        : 'bg-white text-[var(--text-primary)] shadow-sm border border-[var(--border-subtle)] rounded-bl-sm'
+                                                        }`}>
+                                                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {isChatLoading && (
+                                                <div className="flex justify-start">
+                                                    <div className="bg-white px-3 py-2 rounded-2xl rounded-bl-sm shadow-sm border border-[var(--border-subtle)] flex gap-1">
+                                                        <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" />
+                                                        <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]" />
+                                                        <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]" />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="pt-4 border-t border-[var(--border-subtle)] mt-auto">
+                                            <div className="flex gap-2">
+                                                <input
+                                                    value={chatInput}
+                                                    onChange={(e) => setChatInput(e.target.value)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                                                    placeholder="Ask about your usage..."
+                                                    className="flex-1 bg-slate-50 border border-[var(--border-subtle)] focus:ring-1 focus:ring-blue-500 rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none"
+                                                />
+                                                <button
+                                                    onClick={handleChatSend}
+                                                    disabled={isChatLoading || !chatInput.trim()}
+                                                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white p-2 rounded-lg transition-colors"
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                                                </button>
                                             </div>
-                                            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Chat feature coming soon</h3>
-                                            <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-[200px]">
-                                                Ask questions about your usage and get AI-powered answers.
-                                            </p>
                                         </div>
                                     </div>
-                                    <div className="p-4 border-t border-[var(--border-subtle)]">
-                                        <AskAIBar />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </CardContent>
             </Card>
-
-
 
             {/* FLOATING TOOLTIPS */}
             {
@@ -1242,540 +1700,266 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                     <div
                         className="tooltip-floating"
                         style={{
-                            left: Math.min(tooltipPos.x + 12, window.innerWidth - 320),
-                            top: Math.min(tooltipPos.y + 12, window.innerHeight - 450)
+                            left: Math.max(12, Math.min(tooltipPos.x + 12, window.innerWidth - 212)),
+                            top: Math.max(12, Math.min(tooltipPos.y + 12, window.innerHeight - 302))
                         }}
                     >
                         {hoverData.type === 'day' && (
                             <>
-                                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-[var(--border-subtle)]">
-                                    <div className="w-2.5 h-2.5 rounded-sm" style={{ background: COLOR_MAP[getCC(hoverData.pct)] }} />
-                                    <span className="font-bold text-sm">{MNF[hoverData.m]} {hoverData.d}, {activeYear}</span>
+                                <div className="tooltip-section-title">Daily Performance</div>
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: COLOR_MAP[getCC(hoverData.pct)] }} />
+                                    <span className="font-bold">{MNF[hoverData.m]} {hoverData.d}, {activeYear}</span>
                                 </div>
                                 <div className="space-y-2">
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">⚡ Your Usage</span>
+                                    {((hoverData.tempMax !== undefined && hoverData.tempMin !== undefined) || hoverData.tempAvg !== undefined) && (
+                                        <div className="text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded border border-slate-100 italic font-medium">
+                                            🌤️ Local Temp: {hoverData.tempAvg !== undefined ? `${Math.round(hoverData.tempAvg)}°F (Avg)` : `${Math.round(hoverData.tempMax)}°F / ${Math.round(hoverData.tempMin)}°F`}
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between text-[11px]">
+                                        <span>⚡ You:</span>
                                         <span className="font-bold">{hoverData.kwh} kWh</span>
                                     </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">👥 Peer Avg</span>
-                                        <span className="font-bold">{hoverData.avg} kWh</span>
+                                    <div className="flex justify-between text-[11px]">
+                                        <span>👥 Peers:</span>
+                                        <span className="font-bold text-slate-900">{hoverData.avg} kWh</span>
                                     </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">📊 Rank</span>
-                                        <span className="font-bold">{getRankLabel(hoverData.pct)}</span>
-                                    </div>
-                                    <div className="h-1 w-full bg-[var(--bg-surface-2)] rounded-full mt-2 overflow-hidden">
-                                        <div className="h-full bg-[var(--text-secondary)] rounded-full" style={{ width: `${hoverData.pct}%` }} />
-                                    </div>
-                                    <div className="flex justify-between text-[9px] text-[var(--text-secondary)] uppercase font-bold tracking-tighter mt-1">
-                                        <span>Top Efficiency</span>
-                                        <span>High Usage</span>
-                                    </div>
-
-                                    {/* Hourly Chart */}
-                                    <div className="mt-4 pt-3 border-t border-[var(--border-subtle)]">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">24h Consumption</div>
-                                            <div className="text-[9px] font-bold py-0.5 px-1.5 bg-blue-50 text-blue-600 rounded">Hourly</div>
+                                    <div className="pt-2 border-t border-slate-100">
+                                        <div className="flex justify-between items-center text-[11px]">
+                                            <span>📊 Rank:</span>
+                                            <span className="font-bold text-blue-600">{getRankLabel(hoverData.pct)}</span>
                                         </div>
-                                        <div className="flex h-16 w-full gap-1">
-                                            {/* Y-Axis Label */}
-                                            <div className="flex flex-col justify-between text-[7px] font-bold text-[var(--text-secondary)] pr-1 border-r border-[var(--border-subtle)] pb-1 leading-none h-full">
-                                                <span>{Math.max(...hoverData.hourlyKwh, ...hoverData.hourlyLimit).toFixed(1)}</span>
-                                                <span className="text-[6px] opacity-70">kWh</span>
-                                                <span>{(Math.max(...hoverData.hourlyKwh, ...hoverData.hourlyLimit) / 2).toFixed(1)}</span>
-                                                <span>0</span>
+                                        <code className="tooltip-formula">
+                                            Score = (You / (You + Peer)) * 100
+                                        </code>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-100 rounded-full mt-2 overflow-hidden relative shadow-inner">
+                                        <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${hoverData.pct}%` }} />
+                                    </div>
+                                    <div className="text-[9px] text-slate-500 italic text-center mt-2 bg-slate-50/50 rounded p-1.5 border border-slate-100/50 leading-tight">
+                                        {hoverData.pct <= 50
+                                            ? `Efficiency tip: You were more efficient than ${100 - hoverData.pct}% of neighbors.`
+                                            : `Efficiency tip: ${100 - hoverData.pct}% of neighbors used less energy than you.`}
+                                    </div>
+                                    {hoverData.hourlyKwh && (
+                                        <div className="mt-4 pt-3 border-t border-slate-100">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">24h History</div>
+                                                <div className="text-[8px] font-bold py-0.5 px-1.5 bg-blue-50 text-blue-600 rounded">Hourly</div>
                                             </div>
-
-                                            <div className="relative flex-1 bg-[var(--bg-surface-2)]/50 rounded flex items-end justify-between px-1 overflow-hidden h-full pt-2">
-                                                {/* Night Shade Background (Indices 12-23) */}
-                                                <div className="absolute top-0 bottom-0 right-0 w-1/2 bg-blue-900/10 dark:bg-blue-400/10 pointer-events-none" />
-
-                                                {/* Limit Curve SVG Overlay - SMOOTHED CURVE */}
-                                                <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
-                                                    <path
-                                                        d={(() => {
-                                                            const points = hoverData.hourlyLimit?.map((limit: number, hi: number) => {
-                                                                const maxH = Math.max(...hoverData.hourlyKwh, ...hoverData.hourlyLimit);
-                                                                const x = (hi / 23) * 100;
-                                                                const y = 100 - ((limit / (maxH || 1)) * 90);
-                                                                return { x, y };
-                                                            });
-
-                                                            // Simple cubic bezier smoothing
-                                                            if (!points || points.length < 2) return '';
-                                                            let d = `M ${points[0].x}% ${points[0].y}%`;
-                                                            for (let i = 0; i < points.length - 1; i++) {
-                                                                const p0 = points[i];
-                                                                const p1 = points[i + 1];
-                                                                const cpX = (p0.x + p1.x) / 2;
-                                                                d += ` C ${cpX}% ${p0.y}%, ${cpX}% ${p1.y}%, ${p1.x}% ${p1.y}%`;
-                                                            }
-                                                            return d;
-                                                        })()}
-                                                        fill="none"
-                                                        stroke="#f43f5e"
-                                                        strokeWidth="2"
-                                                        strokeDasharray="4,2"
-                                                        className="opacity-80"
-                                                        strokeLinecap="round"
-                                                    />
-                                                </svg>
-
-                                                {hoverData.hourlyKwh?.map((val: number, hi: number) => {
-                                                    const limit = hoverData.hourlyLimit[hi];
-                                                    const maxH = Math.max(...hoverData.hourlyKwh, ...hoverData.hourlyLimit);
-
-                                                    const baseVal = Math.min(val, limit);
-                                                    const excessVal = Math.max(0, val - limit);
-
-                                                    const baseHeight = (baseVal / (maxH || 1)) * 90;
-                                                    const excessHeight = (excessVal / (maxH || 1)) * 90;
-
+                                            <div className="flex h-12 w-full items-end gap-[1px] bg-slate-50/50 rounded p-1">
+                                                {hoverData.hourlyKwh.map((h: number, idx: number) => {
+                                                    const maxVal = Math.max(...hoverData.hourlyKwh, 0.1);
                                                     return (
                                                         <div
-                                                            key={hi}
-                                                            className="relative h-full flex flex-col justify-end"
-                                                            style={{ width: '4px' }}
-                                                        >
-                                                            {excessVal > 0 && (
-                                                                <div
-                                                                    className="w-full bg-rose-500 rounded-t-[1.5px] relative z-10"
-                                                                    style={{ height: `${excessHeight}%` }}
-                                                                />
-                                                            )}
-                                                            <div
-                                                                className={`w-full transition-all duration-500 ${excessVal > 0 ? '' : 'rounded-t-[1.5px]'} ${hi >= 12 ? 'bg-blue-700 dark:bg-blue-400' : 'bg-amber-500 dark:bg-amber-400'}`}
-                                                                style={{
-                                                                    height: `${Math.max(2, baseHeight)}%`,
-                                                                    opacity: hi >= 12 ? 0.9 : 1
-                                                                }}
-                                                            />
-                                                        </div>
+                                                            key={idx}
+                                                            className={`flex-1 rounded-t-[1px] ${idx >= 6 && idx <= 18 ? 'bg-amber-400' : 'bg-blue-400'}`}
+                                                            style={{ height: `${(h / maxVal) * 100}%` }}
+                                                        />
                                                     );
                                                 })}
                                             </div>
-                                        </div>
-                                        <div className="flex justify-between text-[8px] text-[var(--text-secondary)] font-bold uppercase mt-2 px-0.5 ml-6">
-                                            <div className="flex items-center gap-1.5 translate-x-[-4px]">
-                                                <Sun size={12} className="text-amber-500 fill-amber-500/20" strokeWidth={2.5} />
-                                                <span>00</span>
+                                            <div className="flex justify-between text-[8px] text-slate-400 mt-1 uppercase font-bold px-1">
+                                                <div className="flex items-center gap-0.5"><Sun size={8} className="text-amber-500" /> 06:00</div>
+                                                <div className="flex items-center gap-0.5">18:00 <Moon size={8} className="text-blue-500" /></div>
                                             </div>
-                                            {['06', '12'].map(h => (
-                                                <span key={h} className="opacity-60">{h}</span>
-                                            ))}
-                                            <div className="flex items-center gap-1.5 translate-x-[4px]">
-                                                <span>18</span>
-                                                <Moon size={11} className="text-blue-700 dark:text-blue-400 fill-blue-700/20 dark:fill-blue-400/20" strokeWidth={2.5} />
-                                            </div>
-                                            <span className="opacity-60">23</span>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             </>
                         )}
 
-                        {hoverData.type === 'peak-hour' && (
-                            <>
-                                <div className="flex justify-between items-center pb-2 mb-3 border-b border-[var(--border-subtle)]">
-                                    <span className="font-bold text-sm text-[var(--text-primary)]">{hoverData.hour}:00 Usage</span>
-                                    <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-tight ${hoverData.isPk ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
-                                        {hoverData.isPk ? 'Peak Hour' : 'Off-Peak'}
-                                    </span>
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs items-center">
-                                        <span className="text-[var(--text-secondary)]">Avg. Consumption</span>
-                                        <span className="font-bold text-lg">{hoverData.val.toFixed(2)} <small className="font-normal text-[10px]">kWh</small></span>
+                        {(hoverData.type === 'peak-hour' || hoverData.type === 'peak-day') && (
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Peak Distribution</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{hoverData.type === 'peak-hour' ? 'Hourly Performance' : 'DOW Trends'}</div>
+                                <div className="space-y-4">
+                                    <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                                        <div className="flex justify-between items-center text-[10px] font-bold uppercase text-slate-500 mb-1">
+                                            <span>{hoverData.type === 'peak-hour' ? 'Slot' : 'Day'}</span>
+                                            <span className="text-slate-900">{hoverData.label}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[11px]">
+                                            <span className="text-slate-500">Value:</span>
+                                            <span className="font-bold">{hoverData.val}%</span>
+                                        </div>
                                     </div>
-                                    <div className="text-[10px] text-[var(--text-secondary)] italic">
-                                        {hoverData.isPk ? 'Typically higher rates apply during this window.' : 'Standard energy rates apply.'}
+                                    <div className="text-[10px] text-slate-500 leading-relaxed italic border-l-2 border-slate-200 pl-2">
+                                        {hoverData.type === 'peak-hour'
+                                            ? 'Shows when your energy consumption is highest during the day.'
+                                            : 'Identifies which days of the week consistently show peak usage.'}
                                     </div>
+                                    <code className="tooltip-formula">
+                                        Dist % = (Slot Usage / Total Day) * 100
+                                    </code>
                                 </div>
-                            </>
-                        )}
-
-                        {hoverData.type === 'peak-day' && (
-                            <>
-                                <div className="flex justify-between items-center pb-2 mb-3 border-b border-[var(--border-subtle)]">
-                                    <span className="font-bold text-sm text-[var(--text-primary)]">{DOW_NAMES[hoverData.day]} Usage</span>
-                                    <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full uppercase tracking-tight ${hoverData.isWeekend ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
-                                        {hoverData.isWeekend ? 'Weekend' : 'Weekday'}
-                                    </span>
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs items-center">
-                                        <span className="text-[var(--text-secondary)]">Daily Average</span>
-                                        <span className="font-bold text-lg">{hoverData.val.toFixed(2)} <small className="font-normal text-[10px]">kWh</small></span>
-                                    </div>
-                                    <div className="text-[10px] text-[var(--text-secondary)] italic">
-                                        {hoverData.isWeekend ? 'Weekend profiles often show higher base-load usage.' : 'Weekday patterns reflect standard morning/evening peaks.'}
-                                    </div>
-                                </div>
-                            </>
+                            </div>
                         )}
 
                         {hoverData.type === 'temp' && (
-                            <>
-                                <div className="flex justify-between items-center pb-2 mb-3 border-b border-[var(--border-subtle)]">
-                                    <span className="font-bold text-sm text-[var(--text-primary)]">{MNF[hoverData.month]}</span>
-                                    <span className="text-xl">🌡</span>
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Climate Context</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{hoverData.label} Summary</div>
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                        <div className="p-2 bg-blue-50 rounded border border-blue-100">
+                                            <div className="text-[8px] uppercase font-bold text-blue-500 mb-0.5">Min</div>
+                                            <div className="font-bold text-blue-700">{hoverData.min}°F</div>
+                                        </div>
+                                        <div className="p-2 bg-rose-50 rounded border border-rose-100">
+                                            <div className="text-[8px] uppercase font-bold text-rose-500 mb-0.5">Max</div>
+                                            <div className="font-bold text-rose-700">{hoverData.max}°F</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-between items-center p-2 bg-slate-50 rounded border border-slate-100 text-[11px]">
+                                        <span className="text-slate-500 font-semibold">Average:</span>
+                                        <span className="font-bold">{hoverData.avg}°F</span>
+                                    </div>
+                                    <code className="tooltip-formula">Delta = Max - Min</code>
                                 </div>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">Max Temp</span>
-                                        <span className="font-bold">{hoverData.max}°F</span>
-                                    </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">Avg Temp</span>
-                                        <span className="font-bold font-mono text-purple-600">{hoverData.avg}°F</span>
-                                    </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">Min Temp</span>
-                                        <span className="font-bold">{hoverData.min}°F</span>
-                                    </div>
-                                    <div className="flex h-1.5 w-full bg-blue-50 rounded-full mt-3 overflow-hidden">
-                                        <div className="h-full bg-blue-300" style={{ width: `${100 - (hoverData.max / 26) * 100}%` }} />
-                                        <div className="h-full bg-rose-300" style={{ width: `${(hoverData.max / 26) * 100}%` }} />
-                                    </div>
-                                    <div className="flex justify-between text-[9px] text-[var(--text-secondary)] uppercase font-bold tracking-tighter mt-1">
-                                        <span>Cold</span>
-                                        <span>Warm</span>
-                                    </div>
-                                </div>
-                            </>
+                            </div>
                         )}
 
                         {hoverData.type === 'peer-compare-detailed' && (
-                            <div className="w-[320px]">
-                                <div className="flex items-center justify-between pb-2 mb-3 border-b border-[var(--border-subtle)]">
-                                    <span className="font-bold text-sm text-[var(--text-primary)]">{MNF[hoverData.month]} Comparisons</span>
-                                    <span className="text-[10px] font-bold py-0.5 px-2 bg-slate-100 rounded-full text-slate-500 uppercase tracking-tight">{activeYear}</span>
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Peer Comparison</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{MNF[hoverData.month]} Detailed Data</div>
+                                <div className="space-y-4">
+                                    {['highest', 'you', 'lowest'].map(role => (
+                                        <div key={role} className={`p-2 rounded-lg border ${role === 'you' ? 'border-blue-200 bg-blue-50/50' : 'border-slate-100 bg-slate-50/50'}`}>
+                                            <div className="flex justify-between items-center mb-2 font-bold uppercase text-[9px]">
+                                                <span className={role === 'you' ? 'text-blue-600' : (role === 'highest' ? 'text-rose-600' : 'text-emerald-600')}>{role}</span>
+                                                <span className="text-slate-900">{hoverData[role].kwh} kWh</span>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-y-1 text-[9px] text-slate-500 leading-tight">
+                                                <span>Size:</span><span className="text-right text-slate-700">{hoverData[role].size}</span>
+                                                <span>Built:</span><span className="text-right text-slate-700">{hoverData[role].build}</span>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="text-[9px] uppercase tracking-widest text-[var(--text-secondary)]">
-                                            <th className="pb-2 font-bold">Parameter</th>
-                                            <th className="pb-2 font-bold text-rose-600">Highest</th>
-                                            <th className="pb-2 font-bold text-blue-600">You</th>
-                                            <th className="pb-2 font-bold text-emerald-600">Lowest</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="text-[11px]">
-                                        <tr className="border-b border-[var(--border-subtle)]/30">
-                                            <td className="py-2 text-[var(--text-secondary)] font-medium">Usage (kWh)</td>
-                                            <td className="py-2 font-bold">{hoverData.highest.kwh}</td>
-                                            <td className="py-2 font-bold text-blue-600">{hoverData.you.kwh}</td>
-                                            <td className="py-2 font-bold">{hoverData.lowest.kwh}</td>
-                                        </tr>
-                                        <tr className="border-b border-[var(--border-subtle)]/30">
-                                            <td className="py-2 text-[var(--text-secondary)] font-medium">House Size</td>
-                                            <td className="py-2">{hoverData.highest.size}</td>
-                                            <td className="py-2 font-semibold">{hoverData.you.size}</td>
-                                            <td className="py-2">{hoverData.lowest.size}</td>
-                                        </tr>
-                                        <tr className="border-b border-[var(--border-subtle)]/30">
-                                            <td className="py-2 text-[var(--text-secondary)] font-medium">Build Year</td>
-                                            <td className="py-2">{hoverData.highest.build}</td>
-                                            <td className="py-2 font-semibold">{hoverData.you.build}</td>
-                                            <td className="py-2">{hoverData.lowest.build}</td>
-                                        </tr>
-                                        <tr className="border-b border-[var(--border-subtle)]/30">
-                                            <td className="py-2 text-[var(--text-secondary)] font-medium">Occupants</td>
-                                            <td className="py-2">{hoverData.highest.occ}</td>
-                                            <td className="py-2 font-semibold">{hoverData.you.occ}</td>
-                                            <td className="py-2">{hoverData.lowest.occ}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="py-2 text-[var(--text-secondary)] font-medium">Avg Temp</td>
-                                            <td colSpan={3} className="py-2 text-center font-bold text-purple-600">{hoverData.avgTemp}°F</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-
-                                <div className="mt-4 pt-3 border-t border-[var(--border-subtle)]">
-                                    <div className="text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2 text-center">Relative Efficiency Gap</div>
-                                    <div className="relative h-2 w-full bg-[var(--bg-surface-2)] rounded-full overflow-hidden flex">
+                                <div className="mt-4">
+                                    <code className="tooltip-formula">Gap = Your kWh - Lowest Peer kWh</code>
+                                    <div className="relative h-1.5 w-full bg-slate-100 rounded-full mt-2 overflow-hidden shadow-inner flex">
                                         <div className="h-full bg-emerald-500/20 flex-1" />
                                         <div className="h-full bg-amber-500/10 w-[30%]" />
                                         <div className="h-full bg-rose-500/20 w-[20%]" />
-                                        {/* Tick for 'You' */}
                                         <div
-                                            className="absolute top-0 bottom-0 w-1 bg-blue-600 shadow-[0_0_4px_rgba(37,99,235,0.5)] z-10 transition-all duration-500"
-                                            style={{ left: `${(hoverData.you.kwh / hoverData.allMax) * 100}%` }}
+                                            className="absolute top-0 bottom-0 w-1 bg-blue-600 shadow-md z-10 transition-all duration-500"
+                                            style={{ left: `${(hoverData.you.kwh / (hoverData.allMax || 1)) * 100}%` }}
                                         />
                                     </div>
-                                    <div className="flex justify-between text-[8px] text-[var(--text-secondary)] font-bold uppercase mt-1">
-                                        <span>Most Efficient</span>
-                                        <span>Least Efficient</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {hoverData.type === 'usage-month' && (() => {
+                            const { month } = hoverData;
+                            const years = histYears;
+                            const usages = years.map(y => histMonthly[y][month]);
+                            const costs = usages.map(val => (val * RATE).toFixed(0));
+
+                            return (
+                                <div className="w-full">
+                                    <div className="tooltip-section-title">Historical Review</div>
+                                    <div className="font-bold text-xs mb-3 text-slate-700">{MNF[month]} Multi-Year Trends</div>
+                                    <div className="space-y-4">
+                                        {years.map((y, i) => (
+                                            <div key={y} className="relative">
+                                                <div className="flex justify-between items-center text-[10px] font-bold mb-1">
+                                                    <span>{y}</span>
+                                                    <span className="text-emerald-600">${costs[i]}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-[9px] mb-1.5 text-slate-500">
+                                                    <span>{usages[i]} kWh</span>
+                                                </div>
+                                                <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                                                    <div
+                                                        className="h-full bg-blue-500/80 rounded-full"
+                                                        style={{ width: `${(usages[i] / Math.max(...usages, 1)) * 100}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )).reverse()}
+                                    </div>
+                                    <div className="mt-4">
+                                        <code className="tooltip-formula">Cost = kWh * ${RATE}</code>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
+                        {hoverData.type === 'usage-bar' && (
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Monthly Summary</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{MNF[hoverData.month]} {activeYear}</div>
+                                <div className="space-y-3">
+                                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-2">
+                                        <div className="flex justify-between items-center text-[11px]">
+                                            <span className="text-slate-500 font-medium">Usage:</span>
+                                            <span className="font-bold text-slate-900">{hoverData.kwh} kWh</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[11px]">
+                                            <span className="text-slate-500 font-medium">{hoverData.label}:</span>
+                                            {hoverData.cost === '--' ? (
+                                                <span className="font-bold text-slate-400">--</span>
+                                            ) : (
+                                                <span className={`font-bold ${hoverData.isCurrent ? 'text-purple-600' : 'text-blue-600'}`}>${hoverData.cost}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="pt-1">
+                                        <code className="tooltip-formula">Cost = kWh * ${RATE}/kWh</code>
                                     </div>
                                 </div>
                             </div>
                         )}
 
                         {hoverData.type === 'nbr-single' && (
-                            <>
-                                <div className="flex items-center gap-3 pb-3 mb-3 border-b border-[var(--border-subtle)]">
-                                    <div
-                                        className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg"
-                                        style={{
-                                            background: hoverData.role === 'you' ? '#EFF6FF' : (hoverData.role === 'highest' ? '#FEF2F2' : '#F0FDF4'),
-                                            color: hoverData.role === 'you' ? '#2563EB' : (hoverData.role === 'highest' ? '#DC2626' : '#16A34A')
-                                        }}
-                                    >
-                                        {hoverData.role === 'you' ? '⚡' : hoverData.nbr.name.charAt(0)}
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Peer Profile</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{hoverData.role === 'highest' ? 'Highest Peer' : 'Lowest Peer'}</div>
+                                <div className="space-y-4 text-[10px]">
+                                    <div className="grid grid-cols-2 gap-y-2 p-2.5 bg-slate-50 rounded border border-slate-100 font-medium">
+                                        <span className="text-slate-500">Usage:</span><span className="text-right font-bold text-slate-900">{hoverData.kwh} kWh</span>
+                                        <span className="text-slate-500">Occupants:</span><span className="text-right">{hoverData.nbr?.occ}</span>
+                                        <span className="text-slate-500">Build Year:</span><span className="text-right">{hoverData.nbr?.build}</span>
+                                        <span className="text-slate-500">Home Size:</span><span className="text-right">{hoverData.nbr?.size}</span>
                                     </div>
-                                    <div>
-                                        <div className="font-bold text-sm text-[var(--text-primary)]">{hoverData.role === 'you' ? 'Your Household' : hoverData.nbr.name}</div>
-                                        <div className="text-[10px] font-bold uppercase tracking-tight" style={{ color: hoverData.role === 'you' ? '#2563EB' : (hoverData.role === 'highest' ? '#DC2626' : '#16A34A') }}>
-                                            {hoverData.role === 'you' ? 'YOU' : (hoverData.role === 'highest' ? 'Highest Consumer' : 'Lowest Consumer')} • {MNF[hoverData.month]}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">Monthly Usage</span>
-                                        <span className="font-bold text-[var(--text-primary)]">{hoverData.kwh} kWh</span>
-                                    </div>
-                                    {hoverData.nbr && (
-                                        <>
-                                            <div className="flex justify-between text-xs">
-                                                <span className="text-[var(--text-secondary)]">House Size</span>
-                                                <span className="font-medium">{hoverData.nbr.size}</span>
-                                            </div>
-                                            <div className="flex justify-between text-xs">
-                                                <span className="text-[var(--text-secondary)]">Build Year</span>
-                                                <span className="font-medium">{hoverData.nbr.build}</span>
-                                            </div>
-                                            <div className="flex justify-between text-xs">
-                                                <span className="text-[var(--text-secondary)]">Occupants</span>
-                                                <span className="font-medium">{hoverData.nbr.occ}</span>
-                                            </div>
-                                        </>
-                                    )}
-                                    <div className="mt-3">
-                                        <div className="text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">Usage vs peer group max</div>
-                                        <div className="h-1.5 w-full bg-[var(--bg-surface-2)] rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full transition-all duration-500"
-                                                style={{
-                                                    width: `${(hoverData.kwh / hoverData.allMax) * 100}%`,
-                                                    background: hoverData.role === 'you' ? '#2563EB' : (hoverData.role === 'highest' ? '#DC2626' : '#16A34A')
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-
-                        {hoverData.type === 'day-split' && (
-                            <>
-                                <div className="flex items-center gap-2 pb-2 mb-3 border-b border-[var(--border-subtle)]">
-                                    <div className="w-3 h-3 rounded-sm" style={{ background: hoverData.part === 'Day' ? '#facc15' : '#60a5fa' }} />
-                                    <span className="font-bold text-sm">{hoverData.date}</span>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-[var(--text-secondary)]">{hoverData.part} Consumption</span>
-                                        <span className="font-bold text-[var(--text-primary)]">{hoverData.kwh} kWh</span>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                        {hoverData.type === 'usage-month' && (() => {
-                            const { month } = hoverData;
-                            const years = HIST_YEARS;
-                            const usages = years.map(y => HIST_MONTHLY[y as keyof typeof HIST_MONTHLY][month]);
-                            const peerAvgs = usages.map(val => Math.round(val * (peerMonthly[month] / monthTotals[month])));
-                            const costs = usages.map(val => (val * RATE).toFixed(0));
-
-                            const firstUsage = usages[0];
-                            const lastUsage = usages[usages.length - 1];
-                            const numYears = years.length - 1;
-                            const cagr = (((lastUsage / firstUsage) ** (1 / numYears)) - 1) * 100;
-                            const isIncrease = cagr > 0;
-
-                            return (
-                                <div className="w-[380px]">
-                                    <div className="flex items-center gap-2 pb-3 mb-2 border-b border-[var(--border-subtle)]">
-                                        <span className="font-bold text-base text-[var(--text-primary)]">{MNF[month]} Historical Performance</span>
-                                    </div>
-
-                                    {/* Mini Chart */}
-                                    <div className="mb-4 pt-2">
-                                        <div className="flex items-center gap-4 mb-2 text-[10px] text-[var(--text-secondary)] justify-center">
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="w-2 h-2 rounded-[1px] bg-[#f97316]"></div>
-                                                <span>My Consumption</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <div className="w-2 h-2 rounded-[1px] bg-[#cbd5e1]"></div>
-                                                <span>Peer Consumption</span>
-                                            </div>
-                                        </div>
-                                        <svg width="100%" height={130} className="overflow-visible">
-                                            {(() => {
-                                                const cw = 380;
-                                                const padT = 20;
-                                                const ch = 90;
-                                                const padX = 30; // space for y-axes
-                                                const usableW = cw - padX * 2;
-
-                                                // scales
-                                                const maxVal = Math.max(...usages, ...peerAvgs, 100);
-                                                const maxCost = Math.max(...costs.map(Number), 10);
-                                                const yKwh = (val: number) => padT + ch - (val / maxVal) * ch;
-                                                const yCost = (val: number) => padT + ch - (val / maxCost) * ch;
-
-                                                const xSpace = usableW / years.length;
-                                                const getCx = (index: number) => padX + xSpace * index + xSpace / 2;
-
-                                                // path for cost line
-                                                const costLinePath = costs.map((c, i) => `${getCx(i)},${yCost(Number(c))}`).join(' ');
-
-                                                return (
-                                                    <>
-                                                        {/* Grid and Axes */}
-                                                        {[0, 0.5, 1].map(pct => {
-                                                            const y = padT + ch - ch * pct;
-                                                            return (
-                                                                <React.Fragment key={pct}>
-                                                                    <line x1={padX} y1={y} x2={cw - padX} y2={y} stroke="var(--border-subtle)" strokeWidth="1" strokeDasharray="2,2" />
-                                                                    <text x={padX - 4} y={y + 3} fontSize="9" fill="var(--text-secondary)" textAnchor="end">{Math.round(maxVal * pct)}</text>
-                                                                    <text x={cw - padX + 4} y={y + 3} fontSize="9" fill="var(--text-secondary)" textAnchor="start">${Math.round(maxCost * pct)}</text>
-                                                                </React.Fragment>
-                                                            );
-                                                        })}
-
-                                                        {/* Horizontal limit line at 560 kWh */}
-                                                        <line x1={padX} y1={yKwh(560)} x2={cw - padX} y2={yKwh(560)} stroke="#EF4444" strokeWidth="1.5" strokeDasharray="3,3" opacity={0.6} />
-
-                                                        {/* Bars */}
-                                                        {years.map((y, i) => {
-                                                            const cx = getCx(i);
-                                                            const uVal = usages[i];
-                                                            const pVal = peerAvgs[i];
-                                                            const barW = 8;
-                                                            const pY = yKwh(pVal);
-                                                            const uY = yKwh(uVal);
-
-                                                            return (
-                                                                <g key={`bars-${y}`}>
-                                                                    {/* Peer Usage */}
-                                                                    <rect x={cx - barW - 1} y={pY} width={barW} height={padT + ch - pY} fill="#cbd5e1" rx={1} />
-                                                                    {/* User Usage */}
-                                                                    <rect x={cx + 1} y={uY} width={barW} height={padT + ch - uY} fill="#f97316" rx={1} />
-
-                                                                    {/* Year Label */}
-                                                                    <text x={cx} y={padT + ch + 12} fontSize="9" fill="var(--text-secondary)" textAnchor="middle">{y}</text>
-                                                                </g>
-                                                            );
-                                                        })}
-
-                                                        {/* Green price curve */}
-                                                        <polyline points={costLinePath} fill="none" stroke="#16A34A" strokeWidth="2" />
-                                                        {costs.map((c, i) => (
-                                                            <g key={`dot-${i}`}>
-                                                                <circle cx={getCx(i)} cy={yCost(Number(c))} r={3} fill="#16A34A" stroke="#fff" strokeWidth={1} />
-                                                                <text x={getCx(i)} y={yCost(Number(c)) - 8} fontSize="10" fill="#16A34A" textAnchor="middle" fontWeight="bold">${c}</text>
-                                                            </g>
-                                                        ))}
-                                                    </>
-                                                );
-                                            })()}
-                                        </svg>
-                                    </div>
-
-                                    <table className="w-full text-left border-collapse mb-4">
-                                        <thead>
-                                            <tr className="text-[10px] uppercase tracking-widest text-[var(--text-secondary)]">
-                                                <th className="pb-3 pt-2 font-bold whitespace-nowrap">Parameter</th>
-                                                {years.map(y => (
-                                                    <th key={y} className="pb-3 pt-2 font-bold text-center">{y}</th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="text-sm">
-                                            <tr className="border-b border-[var(--border-subtle)]/50">
-                                                <td className="py-2.5 text-[var(--text-secondary)] font-medium">Total Usage (kWh)</td>
-                                                {usages.map((u, i) => (
-                                                    <td key={i} className="py-2.5 font-bold text-[var(--text-primary)] text-center">{u}</td>
-                                                ))}
-                                            </tr>
-                                            <tr className="border-b border-[var(--border-subtle)]/50">
-                                                <td className="py-2.5 text-[var(--text-secondary)] font-medium">Peer Avg. (kWh)</td>
-                                                {peerAvgs.map((pa, i) => (
-                                                    <td key={i} className="py-2.5 text-[var(--text-secondary)] text-center">{pa}</td>
-                                                ))}
-                                            </tr>
-                                            <tr>
-                                                <td className="py-2.5 text-[var(--text-secondary)] font-medium">Total Cost ($)</td>
-                                                {costs.map((c, i) => (
-                                                    <td key={i} className="py-2.5 font-bold text-emerald-600 text-center">${c}</td>
-                                                ))}
-                                            </tr>
-                                        </tbody>
-                                    </table>
-
-                                    <div className="bg-[var(--bg-surface-2)] rounded-lg p-4 text-[13px] leading-relaxed border border-[var(--border-subtle)]/30">
-                                        <div className="flex items-center gap-2 font-bold mb-2">
-                                            <SparkleRegular className="text-amber-400" fontSize={16} />
-                                            <span className="text-[var(--text-primary)] text-sm">Insight</span>
-                                        </div>
-                                        <div>
-                                            <p className="mb-2">
-                                                <strong className={isIncrease ? "text-rose-600" : "text-emerald-600"}>
-                                                    CAGR is {Math.abs(cagr).toFixed(1)}% ({isIncrease ? 'Increase' : 'Decrease'})
-                                                </strong> <span className="text-[var(--text-primary)]">in usage.</span>
-                                            </p>
-                                            <p className="text-[var(--text-secondary)]">
-                                                {isIncrease
-                                                    ? 'Your consumption trend indicates a steady increase over the last 5 years. Optimizing thermostat schedules could help offset rising utilization.'
-                                                    : 'Excellent progress! Your historic data shows a steady reduction in overall consumption relative to established peer usage baselines.'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                        {hoverData.type === 'usage-bar' && (
-                            <div className="flex flex-col gap-1 min-w-[140px]">
-                                <div className="font-bold text-sm text-[var(--text-primary)] mb-1 pb-1 border-b border-[var(--border-subtle)]">
-                                    {MNF[hoverData.month]} Performance
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-[var(--text-secondary)]">Usage:</span>
-                                    <span className="font-bold text-[var(--text-primary)]">{hoverData.kwh} kWh</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-[var(--text-secondary)]">Est. Cost:</span>
-                                    <span className="font-bold text-emerald-600">${hoverData.cost}</span>
                                 </div>
                             </div>
                         )}
-                        {hoverData.type === 'month-peer' && (
-                            <div className="flex flex-col min-w-[160px]">
-                                <div className="text-xs font-bold text-slate-800 border-b border-slate-200 pb-2 mb-2">
-                                    {MNF[hoverData.month]} Peer Review
+
+                        {hoverData.type === 'day-split' && (
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Day/Night Split</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{hoverData.part} Period — {hoverData.date}</div>
+                                <div className="space-y-4 text-[11px]">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-slate-500 font-medium">Consumption:</span>
+                                        <span className="font-bold">{hoverData.kwh} kWh</span>
+                                    </div>
+                                    <div className="pt-2">
+                                        <code className="tooltip-formula">Split % = (Part / Total) * 100</code>
+                                    </div>
                                 </div>
-                                <div className="flex flex-col gap-1.5 text-xs text-slate-600">
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-600"></div>You</div>
-                                        <span className="font-bold text-slate-900">{hoverData.myKwh} kWh</span>
+                            </div>
+                        )}
+
+                        {hoverData.type === 'month-peer' && (
+                            <div className="w-full">
+                                <div className="tooltip-section-title">Peer Review</div>
+                                <div className="font-bold text-xs mb-3 text-slate-700">{MNF[hoverData.month]} Summary</div>
+                                <div className="space-y-3 font-medium text-[10px]">
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Highest:</span><span className="text-rose-600 font-bold">{hoverData.highestKwh} kWh</span>
                                     </div>
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-600"></div>Highest</div>
-                                        <span className="font-bold text-slate-900">{hoverData.highestKwh} kWh</span>
+                                    <div className="flex justify-between p-1.5 bg-blue-50 rounded border border-blue-100 font-bold">
+                                        <span className="text-blue-600">You:</span><span className="text-blue-700">{hoverData.myKwh} kWh</span>
                                     </div>
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-600"></div>Lowest</div>
-                                        <span className="font-bold text-slate-900">{hoverData.lowestKwh} kWh</span>
-                                    </div>
-                                    <div className="flex justify-between items-center border-t border-slate-100 pt-1 mt-0.5">
-                                        <div className="flex items-center gap-1.5"><div className="w-3 h-0.5 rounded bg-purple-500"></div>Predicted</div>
-                                        <span className="font-bold italic">{hoverData.predictedKwh} kWh</span>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Lowest:</span><span className="text-emerald-600 font-bold">{hoverData.lowestKwh} kWh</span>
                                     </div>
                                 </div>
                             </div>
@@ -1784,6 +1968,301 @@ export const EnergyPeerHeatmap: React.FC<EnergyPeerHeatmapProps> = ({ hideTabs, 
                     document.body
                 )
             }
-        </div >
+
+            {/* DAY DETAIL POPUP / MODAL (HEATMAP VERSION) */}
+            {
+                selectedDayDetail && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+                        <Card className="w-full max-w-2xl bg-white shadow-2xl border-none overflow-hidden animate-in zoom-in-95 duration-200">
+                            <CardContent className="p-0">
+                                <div className="bg-slate-50 p-3 border-b border-slate-100">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-4">
+                                            <button
+                                                onClick={() => handlePrevNextDay('prev')}
+                                                className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+                                            >
+                                                <ChevronLeft className="w-4 h-4" />
+                                                <span className="text-[10px] font-bold uppercase">Previous</span>
+                                            </button>
+                                            <div className="text-center">
+                                                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 leading-none">Detailed Daily Insight</h3>
+                                                <h2 className="text-lg font-black text-slate-800 leading-tight">{selectedDayDetail.label}, {activeYear}</h2>
+                                            </div>
+                                            <button
+                                                onClick={() => handlePrevNextDay('next')}
+                                                className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+                                            >
+                                                <span className="text-[10px] font-bold uppercase">Next Day</span>
+                                                <ChevronRight className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <button
+                                            onClick={() => setSelectedDayDetail(null)}
+                                            className="p-1 px-2 rounded-full hover:bg-slate-200 text-slate-400 transition-colors text-lg font-light"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 space-y-4">
+                                    <div className="pt-0">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Hourly Usage Pattern (Heatmap Drilldown)</h4>
+                                            <div className="flex gap-3 text-[9px] font-bold uppercase">
+                                                <div className="flex items-center gap-1.5">
+                                                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                                    <span className="text-slate-500">You</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <div className="w-2 h-2 rounded-full bg-slate-200"></div>
+                                                    <span className="text-slate-400">Peer</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="h-64 w-full bg-slate-50/50 rounded-xl p-2">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <ComposedChart data={selectedDayHourlyData}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                                    <XAxis
+                                                        dataKey="time"
+                                                        axisLine={false}
+                                                        tickLine={false}
+                                                        tick={{ fontSize: 9, fill: '#94a3b8' }}
+                                                        interval={3}
+                                                    />
+                                                    <YAxis hide />
+                                                    <YAxis yAxisId="temp" hide domain={[30, 110]} />
+                                                    <Tooltip
+                                                        content={<CustomTooltip />}
+                                                        cursor={{ fill: '#f1f5f9' }}
+                                                    />
+                                                    <Bar
+                                                        dataKey="peer"
+                                                        fill="#cbd5e1"
+                                                        radius={[2, 2, 0, 0]}
+                                                        maxBarSize={12}
+                                                    />
+                                                    <Bar
+                                                        dataKey="value"
+                                                        fill="#3b82f6"
+                                                        radius={[2, 2, 0, 0]}
+                                                        maxBarSize={12}
+                                                    />
+                                                    <Line
+                                                        yAxisId="temp"
+                                                        type="monotone"
+                                                        dataKey="temp"
+                                                        name="Temperature"
+                                                        stroke="#10b981"
+                                                        strokeWidth={1.5}
+                                                        dot={{ r: 3, fill: '#10b981', strokeWidth: 1, stroke: '#fff' }}
+                                                        activeDot={{ r: 5 }}
+                                                    />
+                                                    <Line
+                                                        type="monotone"
+                                                        dataKey="predicted"
+                                                        name="Predicted"
+                                                        stroke="#8b5cf6"
+                                                        strokeWidth={1.5}
+                                                        strokeDasharray="4 4"
+                                                        dot={false}
+                                                    />
+                                                </ComposedChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                                            <p className="text-[10px] font-bold text-blue-500 uppercase mb-1">Your Usage</p>
+                                            <p className="text-xl font-bold text-slate-800">{selectedDayDetail.my ? `${selectedDayDetail.my.toFixed(2)} kWh` : 'N/A'}</p>
+                                        </div>
+                                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Peer Average</p>
+                                            <p className="text-xl font-black text-slate-700">{selectedDayDetail.peer ? `${selectedDayDetail.peer.toFixed(2)} kWh` : 'N/A'}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 pt-1">
+                                        <div className="flex gap-3">
+                                            <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                                                <Zap className="w-3.5 h-3.5 text-blue-600" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">System Efficiency</h4>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">
+                                                    {selectedDayDetail.my < selectedDayDetail.peer
+                                                        ? "Excellent! You were 14% more efficient than your peers on this day."
+                                                        : "Usage was slightly above average due to evening climate control optimization."}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex gap-3">
+                                            <div className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+                                                <Info className="w-3.5 h-3.5 text-orange-600" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Behavioral Insight</h4>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">
+                                                    Significant background load detected during sleep hours. Recommend auditing always-on appliances.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setSelectedDayDetail(null)}
+                                        className="w-full py-2.5 bg-slate-800 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200"
+                                    >
+                                        Dismiss Insights
+                                    </button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                )
+            }
+
+            {/* MONTHLY PERFORMANCE DRILLDOWN POPUP */}
+            {selectedMonthPerfDetail && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <Card className="w-full max-w-2xl bg-white shadow-2xl border-none overflow-hidden animate-in zoom-in-95 duration-200">
+                        <CardContent className="p-0">
+                            <div className="bg-slate-50 p-3 border-b border-slate-100">
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <button
+                                            onClick={() => handlePrevNextMonth('prev')}
+                                            className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                            <span className="text-[10px] font-bold uppercase">Previous</span>
+                                        </button>
+                                        <div className="text-center">
+                                            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 leading-none">Detailed Monthly Insight</h3>
+                                            <h2 className="text-lg font-black text-slate-800 leading-tight">{MNF[selectedMonthPerfDetail.month]} {selectedMonthPerfDetail.year}</h2>
+                                        </div>
+                                        <button
+                                            onClick={() => handlePrevNextMonth('next')}
+                                            className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+                                        >
+                                            <span className="text-[10px] font-bold uppercase">Next Month</span>
+                                            <ChevronRight className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedMonthPerfDetail(null)}
+                                        className="p-1 px-2 rounded-full hover:bg-slate-200 text-slate-400 transition-colors text-lg font-light"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="p-3 space-y-4">
+                                <div className="pt-0">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Daily Usage Pattern — {MN[selectedMonthPerfDetail.month]}</h4>
+                                        <div className="flex gap-3 text-[9px] font-bold uppercase">
+                                            <div className="flex items-center gap-1.5">
+                                                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                                <span className="text-slate-500">You</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <div className="w-3 h-0 border-t-2 border-dashed border-[#8b5cf6]"></div>
+                                                <span className="text-slate-400">Predicted</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <div className="w-2 h-2 rounded-full bg-[#10b981]"></div>
+                                                <span className="text-slate-400">Temp</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="h-64 w-full bg-slate-50/50 rounded-xl p-2">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={selectedMonthPerformanceData}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                                <XAxis
+                                                    dataKey="label"
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    tick={{ fontSize: 9, fill: '#94a3b8' }}
+                                                    interval={4}
+                                                />
+                                                <YAxis hide />
+                                                <YAxis yAxisId="temp" hide domain={[30, 110]} />
+                                                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f1f5f9' }} />
+                                                <Bar
+                                                    dataKey="value"
+                                                    name="Your Usage"
+                                                    fill="#3b82f6"
+                                                    radius={[2, 2, 0, 0]}
+                                                    maxBarSize={12}
+                                                />
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="predicted"
+                                                    name="Predicted"
+                                                    stroke="#8b5cf6"
+                                                    strokeWidth={1.5}
+                                                    strokeDasharray="4 4"
+                                                    dot={false}
+                                                />
+                                                <Line
+                                                    yAxisId="temp"
+                                                    type="monotone"
+                                                    dataKey="temp"
+                                                    name="Temperature"
+                                                    stroke="#10b981"
+                                                    strokeWidth={1.5}
+                                                    dot={{ r: 2.5, fill: '#10b981', strokeWidth: 1, stroke: '#fff' }}
+                                                    activeDot={{ r: 4 }}
+                                                />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 pb-2">
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Monthly Total</p>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-slate-800">
+                                                {monthStats[selectedMonthPerfDetail.month]?.myKwh.toFixed(1)} <span className="text-xs font-bold text-slate-400">kWh</span>
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1 mt-1">
+                                            <Zap size={10} className="text-blue-500" />
+                                            <span className="text-[10px] font-bold text-blue-600 uppercase">
+                                                Expected: {monthStats[selectedMonthPerfDetail.month]?.predictedKwh.toFixed(1)} kWh
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                                            {monthStats[selectedMonthPerfDetail.month]?.label || (monthStats[selectedMonthPerfDetail.month]?.isCurrent ? 'Estimated Bill' : 'Total Bill')}
+                                        </p>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-slate-800">
+                                                ${monthStats[selectedMonthPerfDetail.month]?.cost?.toFixed(2) || (monthStats[selectedMonthPerfDetail.month]?.myKwh * 0.12).toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1 mt-1 text-slate-400">
+                                            <Info size={10} className="text-slate-400" />
+                                            <span className="text-[10px] font-bold uppercase">
+                                                {monthStats[selectedMonthPerfDetail.month]?.isActual ? 'Finalized Bill' : 'Projected Based on Usage'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+        </div>
     );
 };

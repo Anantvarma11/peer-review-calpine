@@ -28,7 +28,7 @@ export function DashboardLayout({ children, selectedId = "983241", onCustomerCha
                     />
                 }
             >
-                <div className="max-w-[1440px] mx-auto px-6 py-4">
+                <div className="max-w-[1440px] w-full mx-auto px-6 py-4">
                     {children}
                 </div>
             </RightSection>
