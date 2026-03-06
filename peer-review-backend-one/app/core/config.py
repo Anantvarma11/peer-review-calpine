@@ -9,9 +9,9 @@ _env_file = Path(__file__).resolve().parent.parent.parent / "app.env"
 _env_file = str(_env_file) if _env_file.exists() else None
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str
+    PROJECT_NAME: str = "Energy Intelligence Dashboard"
     API_V1_STR: str = "/api"
-    SECRET_KEY: str
+    SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8 
     
     # Snowflake

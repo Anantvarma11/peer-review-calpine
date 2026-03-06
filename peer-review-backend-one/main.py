@@ -30,22 +30,21 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
 @app.on_event("startup")
 def startup_event():
-    from app.database import test_connection
     import logging
-
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    
-    if settings.USE_MOCK_DATA:
-        logger.info("ℹ️ Running in Mock Mode - Database connection skipped.")
-        return
-    
-    logger.info(f"🔗 Connecting to {settings.DATABASE_TYPE.upper()} database...")
-    
-    if test_connection():
-        logger.info(f"✅ SUCCESS: Connected to {settings.DATABASE_TYPE.upper()} database!")
-    else:
-        logger.error(f"❌ FAILED: Could not connect to {settings.DATABASE_TYPE.upper()} database.") 
+    try:
+        if settings.USE_MOCK_DATA:
+            logger.info("ℹ️ Running in Mock Mode - Database connection skipped.")
+            return
+        from app.database import test_connection
+        logger.info(f"🔗 Connecting to {settings.DATABASE_TYPE.upper()} database...")
+        if test_connection():
+            logger.info(f"✅ SUCCESS: Connected to {settings.DATABASE_TYPE.upper()} database!")
+        else:
+            logger.warning(f"⚠️ Could not connect to {settings.DATABASE_TYPE.upper()} database; mock/fallback may be used.")
+    except Exception as e:
+        logger.warning(f"⚠️ Startup check failed (non-fatal): {e}") 
 
 @app.get("/")
 def root():
