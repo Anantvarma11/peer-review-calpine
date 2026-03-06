@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getDailyUsage, getHourlyUsage, getWeatherForCity, getCustomer } from '@/lib/api';
 import { Card, CardContent } from "@/components/ui/Card";
-import { Line, Bar, ComposedChart, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, BarChart, Area, AreaChart, CartesianGrid } from 'recharts';
+import { Line, Bar, ComposedChart, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, CartesianGrid } from 'recharts';
 import { Info, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { SimpleTooltip } from '@/components/ui/SimpleTooltip';
-import { EnergyIntelligenceKPIs } from '@/components/charts/EnergyIntelligenceKPIs';
 
 interface TopOverviewChartsProps {
     customerId?: string;

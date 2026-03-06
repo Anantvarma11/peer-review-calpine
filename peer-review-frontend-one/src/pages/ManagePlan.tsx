@@ -5,7 +5,7 @@ interface ManagePlanProps {
     customerId?: string;
 }
 
-const ManagePlan: React.FC<ManagePlanProps> = ({ customerId }) => {
+const ManagePlan: React.FC<ManagePlanProps> = () => {
     return (
         <div className="p-8 max-w-[1400px] mx-auto w-full">
             <h1 className="text-2xl font-bold text-slate-900 mb-6">Manage Plan</h1>
