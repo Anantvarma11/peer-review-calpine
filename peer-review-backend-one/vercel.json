@@ -1,8 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "api/**/*.py": {
-      "excludeFiles": "{**/__pycache__/**,**/*.pyc,**/.pytest_cache/**,test_*.py,debug_*.py,inspect_*.py,verify_*.py,check_*.py,*_db.py,docker-compose.yml,Dockerfile}"
-    }
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
