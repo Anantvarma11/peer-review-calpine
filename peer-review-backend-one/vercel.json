@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/**/*.py": {
-      "excludeFiles": "{**/__pycache__/**,**/*.pyc,**/*.pyo,**/.pytest_cache/**,**/*.bak,tests/**,**/test_*.py,**/*_test.py,test_*.py,debug_*.py,inspect_*.py,verify_*.py,check_*.py,create_views.py,describe_tables.py,list_tables.py,find_views.py,enrich_weather_data.py,read_pdf.py,docker-compose.yml,Dockerfile,.git/**,*.md}"
+      "excludeFiles": "{**/__pycache__/**,**/*.pyc,**/.pytest_cache/**,test_*.py,debug_*.py,inspect_*.py,verify_*.py,check_*.py,*_db.py,docker-compose.yml,Dockerfile}"
     }
   }
 }
