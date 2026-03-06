@@ -20,6 +20,7 @@ venv_new/
 # Environment variables
 .env
 .env.local
+app.env
 
 # Project specific caches or data files
 pdf_content.txt
